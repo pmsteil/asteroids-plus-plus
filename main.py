@@ -4,6 +4,7 @@ import random
 import math
 import os
 import numpy as np
+import array
 
 # Game constants
 WIDTH, HEIGHT = 800, 600
@@ -29,47 +30,112 @@ class SoundEffects:
     def _create_sounds(self):
         # Create synthesized sounds using pygame
         sample_rate = 44100
-        max_amplitude = np.iinfo(np.int16).max
+        max_amplitude = 32767  # Max value for 16-bit audio
         
-        # Fire sound (short high-pitched beep)
-        duration = 0.1  # seconds
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        fire_samples = (max_amplitude * 0.5 * np.sin(2.0 * np.pi * 440.0 * t)).astype(np.int16)
-        self.sounds['fire'] = pygame.mixer.Sound(fire_samples.tobytes())
+        def clamp(value):
+            """Clamp value to valid 16-bit range"""
+            return max(min(value, 32767), -32768)
+        
+        def create_buffer(samples):
+            """Convert numpy array to proper audio buffer"""
+            buffer = array.array('h')  # signed short integer array
+            buffer.extend(samples)
+            return buffer
+        
+        # Fire sound (softer, lower pitched beep)
+        duration = 0.05  # shorter duration
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))  # Stereo, so *2
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            value = clamp(int(max_amplitude * 0.15 * math.sin(2.0 * math.pi * 220.0 * t)))
+            samples[i * 2] = value  # Left channel
+            samples[i * 2 + 1] = value  # Right channel
+        self.sounds['fire'] = pygame.mixer.Sound(buffer=samples)
+        self.sounds['fire'].set_volume(0.3)
         
         # Thrust sound (low rumble)
         duration = 1.0
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        thrust_samples = (max_amplitude * 0.25 * np.sin(2.0 * np.pi * 100.0 * t) + 
-                         max_amplitude * 0.125 * np.sin(2.0 * np.pi * 80.0 * t)).astype(np.int16)
-        self.sounds['thrust'] = pygame.mixer.Sound(thrust_samples.tobytes())
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            value = clamp(int(max_amplitude * 0.25 * (
+                math.sin(2.0 * math.pi * 100.0 * t) +
+                0.5 * math.sin(2.0 * math.pi * 80.0 * t)
+            )))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        self.sounds['thrust'] = pygame.mixer.Sound(buffer=samples)
+        self.sounds['thrust'].set_volume(0.4)
         
-        # Explosion sounds (different pitches for different sizes)
-        def create_explosion(base_freq, duration):
-            t = np.linspace(0, duration, int(sample_rate * duration))
-            decay = np.exp(-3.0 * t)
-            samples = (max_amplitude * 0.5 * decay * np.sin(2.0 * np.pi * base_freq * t)).astype(np.int16)
-            return pygame.mixer.Sound(samples.tobytes())
+        # Explosion sounds
+        def create_explosion(base_freq, duration, volume=0.7):
+            num_samples = int(duration * sample_rate)
+            samples = array.array('h', [0] * (num_samples * 2))
+            for i in range(num_samples):
+                t = float(i) / sample_rate
+                decay = math.exp(-3.0 * t)
+                value = clamp(int(max_amplitude * volume * decay * (
+                    0.5 * math.sin(2.0 * math.pi * base_freq * t) +
+                    0.3 * math.sin(2.0 * math.pi * (base_freq * 1.5) * t) +
+                    0.2 * math.sin(2.0 * math.pi * (base_freq * 0.5) * t) +
+                    0.1 * random.uniform(-1, 1)  # Noise
+                )))
+                samples[i * 2] = value
+                samples[i * 2 + 1] = value
+            sound = pygame.mixer.Sound(buffer=samples)
+            sound.set_volume(0.7)
+            return sound
+            
+        self.sounds['big_explosion'] = create_explosion(80, 0.6)
+        self.sounds['medium_explosion'] = create_explosion(120, 0.5)
+        self.sounds['small_explosion'] = create_explosion(160, 0.4)
         
-        self.sounds['big_explosion'] = create_explosion(100, 0.5)
-        self.sounds['medium_explosion'] = create_explosion(200, 0.4)
-        self.sounds['small_explosion'] = create_explosion(300, 0.3)
-        self.sounds['ship_explosion'] = create_explosion(60, 0.8)
+        # Ship explosion (more dramatic)
+        duration = 0.8
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            decay = math.exp(-2.0 * t)
+            value = clamp(int(max_amplitude * decay * (
+                0.4 * math.sin(2.0 * math.pi * 60.0 * t) +
+                0.3 * math.sin(2.0 * math.pi * 90.0 * t) +
+                0.2 * math.sin(2.0 * math.pi * 30.0 * t) +
+                0.3 * random.uniform(-1, 1)
+            )))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        self.sounds['ship_explosion'] = pygame.mixer.Sound(buffer=samples)
+        self.sounds['ship_explosion'].set_volume(0.8)
         
         # Beat sound (low thump)
         duration = 0.1
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        decay = np.exp(-10.0 * t)
-        beat_samples = (max_amplitude * 0.5 * decay * np.sin(2.0 * np.pi * 50.0 * t)).astype(np.int16)
-        self.sounds['beat'] = pygame.mixer.Sound(beat_samples.tobytes())
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            decay = math.exp(-10.0 * t)
+            value = clamp(int(max_amplitude * 0.3 * decay * math.sin(2.0 * math.pi * 50.0 * t)))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        self.sounds['beat'] = pygame.mixer.Sound(buffer=samples)
+        self.sounds['beat'].set_volume(0.4)
         
         # Extra life sound (high pitched jingle)
         duration = 0.5
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        freq = 440.0 * (1 + t)
-        extra_life_samples = (max_amplitude * 0.5 * np.sin(2.0 * np.pi * freq * t)).astype(np.int16)
-        self.sounds['extra_life'] = pygame.mixer.Sound(extra_life_samples.tobytes())
-
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            freq = 440.0 * (1 + t)
+            value = clamp(int(max_amplitude * 0.3 * math.sin(2.0 * math.pi * freq * t)))
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+        self.sounds['extra_life'] = pygame.mixer.Sound(buffer=samples)
+        self.sounds['extra_life'].set_volume(0.5)
+    
     def play(self, sound_name):
         if sound_name in self.sounds:
             self.sounds[sound_name].play()
@@ -245,6 +311,15 @@ def draw_ship_icon(surface, pos):
     transformed = [(p.x + pos[0], p.y + pos[1]) for p in points]
     pygame.draw.polygon(surface, WHITE, transformed, 0)
 
+def create_explosion_particles(pos, count=20):
+    particles = []
+    for _ in range(count):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(2, 5)
+        velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
+        particles.append(Particle(pos, velocity))
+    return particles
+
 def draw_ui(surface, score, lives, game_over):
     font = pygame.font.SysFont('Arial', 24)
     # Draw score at top left
@@ -257,12 +332,17 @@ def draw_ui(surface, score, lives, game_over):
         icon_y = 10
         draw_ship_icon(surface, (icon_x, icon_y + 10))
 
-    # If game over, display GAME OVER message centered
+    # If game over, display GAME OVER message and restart instruction
     if game_over:
         game_font = pygame.font.SysFont('Arial', 48)
         game_over_text = game_font.render('GAME OVER', True, WHITE)
         text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2))
         surface.blit(game_over_text, text_rect)
+        
+        restart_font = pygame.font.SysFont('Arial', 24)
+        restart_text = restart_font.render('Press R to Restart', True, WHITE)
+        restart_rect = restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 50))
+        surface.blit(restart_text, restart_rect)
 
 def main():
     pygame.init()
@@ -276,17 +356,28 @@ def main():
         ship.make_invulnerable()
         return ship
 
-    # Create the ship in the center of the screen
-    ship = reset_ship()
-    lives = 3
+    def init_game():
+        nonlocal ship, lives, score, in_game, game_over, particles, asteroids, bullets
+        ship = reset_ship()
+        lives = 3
+        score = 0
+        in_game = True
+        game_over = False
+        particles = []
+        asteroids = [Asteroid((random.randrange(WIDTH), random.randrange(HEIGHT)), random.randint(20, 40))
+                     for _ in range(5)]
+        bullets = []
+
+    # Initialize game variables
+    ship = None
+    lives = 0
     score = 0
     in_game = True
     game_over = False
-    particles = []  # Add particle list
-    # Generate some asteroids at random positions with random sizes
-    asteroids = [Asteroid((random.randrange(WIDTH), random.randrange(HEIGHT)), random.randint(20, 40))
-                 for _ in range(5)]
+    particles = []
+    asteroids = []
     bullets = []
+    init_game()  # Initialize all game variables
 
     # Initialize sound effects
     sound_effects = SoundEffects()
@@ -298,9 +389,10 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            # Fire a bullet when the spacebar is pressed (only if in game)
-            if event.type == pygame.KEYDOWN and in_game:
-                if event.key == pygame.K_SPACE:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r and game_over:
+                    init_game()
+                elif event.key == pygame.K_SPACE and in_game:
                     bullets.append(Bullet(ship.pos, ship.angle))
                     sound_effects.play('fire')
 
@@ -366,17 +458,19 @@ def main():
                     if ship.pos.distance_to(asteroid.pos) < (asteroid.size + SHIP_COLLISION_RADIUS):
                         print("Collision detected! Ship hit an asteroid.")
                         lives -= 1
+                        
+                        # Create explosion particles and play sound immediately
+                        particles.extend(create_explosion_particles(ship.pos))
+                        particles.extend(create_explosion_particles(ship.pos, 30))  # Add more particles
+                        life_icon_pos = (WIDTH - lives * 30 - 30, 20)
+                        particles.extend(create_explosion_particles(life_icon_pos, 10))
                         sound_effects.play('ship_explosion')
                         
-                        # Create explosion particles
-                        for _ in range(20):
-                            angle = random.uniform(0, 2 * math.pi)
-                            speed = random.uniform(2, 5)
-                            velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
-                            particles.append(Particle(ship.pos, velocity))
-                        
                         if lives > 0:
+                            # Create the new ship but keep it invisible briefly
                             ship = reset_ship()
+                            ship.invulnerable = True
+                            ship.invulnerable_timer = 90  # 1.5 seconds at 60 FPS
                         else:
                             in_game = False
                             game_over = True
