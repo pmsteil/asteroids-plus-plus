@@ -1,0 +1,307 @@
+import pygame
+import sys
+import random
+import math
+
+# Game constants
+WIDTH, HEIGHT = 800, 600
+FPS = 60
+
+# Colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+
+# Approximate collision radius for the ship (tweak as needed)
+SHIP_COLLISION_RADIUS = 15
+
+class Ship:
+    def __init__(self, pos, angle=0):
+        self.pos = pygame.Vector2(pos)
+        self.angle = angle  # in degrees
+        self.velocity = pygame.Vector2(0, 0)
+        self.acceleration = 0.2
+        self.friction = 0.99
+        # Define the ship as a triangle (points relative to the center)
+        self.points = [pygame.Vector2(0, -15), pygame.Vector2(10, 10), pygame.Vector2(-10, 10)]
+        self.invulnerable = False
+        self.invulnerable_timer = 0
+
+    def update(self):
+        self.pos += self.velocity
+        self.velocity *= self.friction
+        self.wrap()
+        if self.invulnerable:
+            self.invulnerable_timer -= 1
+            if self.invulnerable_timer <= 0:
+                self.invulnerable = False
+
+    def make_invulnerable(self, frames=120):  # 2 seconds at 60 FPS
+        self.invulnerable = True
+        self.invulnerable_timer = frames
+
+    def draw(self, surface):
+        # If invulnerable, blink the ship
+        if self.invulnerable and (self.invulnerable_timer // 4) % 2:
+            return
+        # Rotate and translate the ship's points
+        rad = math.radians(self.angle)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        transformed = []
+        for point in self.points:
+            x = point.x * cos_a - point.y * sin_a
+            y = point.x * sin_a + point.y * cos_a
+            transformed.append((x + self.pos.x, y + self.pos.y))
+        pygame.draw.polygon(surface, WHITE, transformed, 1)
+
+    def accelerate(self):
+        # Accelerate in the direction the ship is pointing
+        rad = math.radians(self.angle)
+        force = pygame.Vector2(math.sin(rad), -math.cos(rad)) * self.acceleration
+        self.velocity += force
+
+    def rotate(self, direction):
+        # direction: -1 for left, +1 for right
+        self.angle += 5 * direction
+
+    def wrap(self):
+        # Wrap around screen edges
+        if self.pos.x > WIDTH:
+            self.pos.x = 0
+        elif self.pos.x < 0:
+            self.pos.x = WIDTH
+        if self.pos.y > HEIGHT:
+            self.pos.y = 0
+        elif self.pos.y < 0:
+            self.pos.y = HEIGHT
+
+class Asteroid:
+    def __init__(self, pos, size):
+        self.pos = pygame.Vector2(pos)
+        self.size = size  # radius of the asteroid
+        angle = random.uniform(0, 360)
+        speed = random.uniform(1, 3)
+        self.velocity = pygame.Vector2(math.cos(math.radians(angle)), math.sin(math.radians(angle))) * speed
+        self.points = self.generate_points()
+
+    def generate_points(self):
+        # Create a rough polygon to represent the asteroid
+        points = []
+        num_points = random.randint(8, 12)
+        for i in range(num_points):
+            angle = i * (360 / num_points) + random.uniform(-10, 10)
+            rad = math.radians(angle)
+            distance = self.size + random.uniform(-self.size * 0.4, self.size * 0.4)
+            x = math.cos(rad) * distance
+            y = math.sin(rad) * distance
+            points.append((x, y))
+        return points
+
+    def update(self):
+        self.pos += self.velocity
+        self.wrap()
+
+    def wrap(self):
+        if self.pos.x > WIDTH:
+            self.pos.x = 0
+        elif self.pos.x < 0:
+            self.pos.x = WIDTH
+        if self.pos.y > HEIGHT:
+            self.pos.y = 0
+        elif self.pos.y < 0:
+            self.pos.y = HEIGHT
+
+    def draw(self, surface):
+        # Translate the asteroid's polygon points to its position
+        transformed = [(self.pos.x + x, self.pos.y + y) for (x, y) in self.points]
+        pygame.draw.polygon(surface, WHITE, transformed, 1)
+
+class Bullet:
+    def __init__(self, pos, angle):
+        self.pos = pygame.Vector2(pos)
+        rad = math.radians(angle)
+        self.velocity = pygame.Vector2(math.sin(rad), -math.cos(rad)) * 10
+        self.lifetime = 60  # frames bullet will be alive
+
+    def update(self):
+        self.pos += self.velocity
+        self.lifetime -= 1
+        self.wrap()
+
+    def wrap(self):
+        if self.pos.x > WIDTH:
+            self.pos.x = 0
+        elif self.pos.x < 0:
+            self.pos.x = WIDTH
+        if self.pos.y > HEIGHT:
+            self.pos.y = 0
+        elif self.pos.y < 0:
+            self.pos.y = HEIGHT
+
+    def draw(self, surface):
+        pygame.draw.circle(surface, RED, (int(self.pos.x), int(self.pos.y)), 2)
+
+class Particle:
+    def __init__(self, pos, velocity, lifetime=30):
+        self.pos = pygame.Vector2(pos)
+        self.velocity = pygame.Vector2(velocity)
+        self.lifetime = lifetime
+        self.original_lifetime = lifetime
+
+    def update(self):
+        self.pos += self.velocity
+        self.lifetime -= 1
+        # Slow down the particle
+        self.velocity *= 0.95
+        return self.lifetime > 0
+
+    def draw(self, surface):
+        # Fade out as lifetime decreases
+        alpha = int((self.lifetime / self.original_lifetime) * 255)
+        color = (255, min(255, 128 + alpha), 0, alpha)
+        pygame.draw.circle(surface, color, (int(self.pos.x), int(self.pos.y)), 1)
+
+def draw_ship_icon(surface, pos):
+    # Draw a small ship icon (triangle) at the given position
+    points = [pygame.Vector2(0, -8), pygame.Vector2(6, 8), pygame.Vector2(-6, 8)]
+    transformed = [(p.x + pos[0], p.y + pos[1]) for p in points]
+    pygame.draw.polygon(surface, WHITE, transformed, 0)
+
+def draw_ui(surface, score, lives, game_over):
+    font = pygame.font.SysFont('Arial', 24)
+    # Draw score at top left
+    score_text = font.render(f"Score: {score}", True, WHITE)
+    surface.blit(score_text, (10, 10))
+
+    # Draw lives icons at upper right
+    for i in range(lives):
+        icon_x = WIDTH - (i + 1) * 30
+        icon_y = 10
+        draw_ship_icon(surface, (icon_x, icon_y + 10))
+
+    # If game over, display GAME OVER message centered
+    if game_over:
+        game_font = pygame.font.SysFont('Arial', 48)
+        game_over_text = game_font.render('GAME OVER', True, WHITE)
+        text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2))
+        surface.blit(game_over_text, text_rect)
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Asteroids")
+    clock = pygame.time.Clock()
+
+    def reset_ship():
+        ship = Ship((WIDTH / 2, HEIGHT / 2))
+        ship.make_invulnerable()
+        return ship
+
+    # Create the ship in the center of the screen
+    ship = reset_ship()
+    lives = 3
+    score = 0
+    in_game = True
+    game_over = False
+    particles = []  # Add particle list
+    # Generate some asteroids at random positions with random sizes
+    asteroids = [Asteroid((random.randrange(WIDTH), random.randrange(HEIGHT)), random.randint(20, 40))
+                 for _ in range(5)]
+    bullets = []
+
+    running = True
+    while running:
+        clock.tick(FPS)
+        # Process events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            # Fire a bullet when the spacebar is pressed (only if in game)
+            if event.type == pygame.KEYDOWN and in_game:
+                if event.key == pygame.K_SPACE:
+                    bullets.append(Bullet(ship.pos, ship.angle))
+
+        if in_game:
+            # Update particles
+            particles = [p for p in particles if p.update()]
+
+            # Handle continuous key presses for rotation and acceleration
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LEFT]:
+                ship.rotate(-1)
+            if keys[pygame.K_RIGHT]:
+                ship.rotate(1)
+            if keys[pygame.K_UP]:
+                ship.accelerate()
+
+            # Update game objects
+            ship.update()
+            for asteroid in asteroids:
+                asteroid.update()
+            for bullet in bullets[:]:
+                bullet.update()
+                if bullet.lifetime <= 0:
+                    bullets.remove(bullet)
+
+            # Check for bullet-asteroid collisions
+            for bullet in bullets[:]:
+                for asteroid in asteroids[:]:
+                    if bullet.pos.distance_to(asteroid.pos) < asteroid.size:
+                        try:
+                            bullets.remove(bullet)
+                        except ValueError:
+                            pass
+                        try:
+                            asteroids.remove(asteroid)
+                        except ValueError:
+                            pass
+                        score += 100
+                        if asteroid.size > 15:
+                            for _ in range(2):
+                                new_size = asteroid.size // 2
+                                new_asteroid = Asteroid(asteroid.pos, new_size)
+                                asteroids.append(new_asteroid)
+                        break
+
+            # Check for ship collisions
+            if not ship.invulnerable:  # Only check collisions if not invulnerable
+                for asteroid in asteroids:
+                    if ship.pos.distance_to(asteroid.pos) < (asteroid.size + SHIP_COLLISION_RADIUS):
+                        print("Collision detected! Ship hit an asteroid.")
+                        lives -= 1
+                        
+                        # Create explosion particles
+                        for _ in range(20):  # Create 20 particles
+                            angle = random.uniform(0, 2 * math.pi)
+                            speed = random.uniform(2, 5)
+                            velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
+                            particles.append(Particle(ship.pos, velocity))
+                        
+                        if lives > 0:
+                            # Reset ship position and velocity
+                            ship = reset_ship()
+                        else:
+                            in_game = False
+                            game_over = True
+                        break
+
+        # Render the scene
+        screen.fill(BLACK)
+        if in_game:
+            ship.draw(screen)
+            for asteroid in asteroids:
+                asteroid.draw(screen)
+            for bullet in bullets:
+                bullet.draw(screen)
+        # Draw particles
+        for particle in particles:
+            particle.draw(screen)
+        draw_ui(screen, score, lives, game_over)
+        pygame.display.flip()
+
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
