@@ -2,6 +2,7 @@ import pygame
 import sys
 import random
 import math
+import os
 
 # Game constants
 WIDTH, HEIGHT = 800, 600
@@ -14,6 +15,93 @@ RED = (255, 0, 0)
 
 # Approximate collision radius for the ship (tweak as needed)
 SHIP_COLLISION_RADIUS = 15
+
+# Sound effects
+class SoundEffects:
+    def __init__(self):
+        self.sounds = {}
+        self._create_sounds()
+        self.thrust_playing = False
+        self.beat_tempo = 1.0
+        self.last_beat_time = 0
+        
+    def _create_sounds(self):
+        # Create synthesized sounds using pygame
+        sample_rate = 44100
+        bit_depth = -16
+        
+        # Fire sound (short high-pitched beep)
+        duration = 0.1  # seconds
+        fire_samples = [4096 * math.sin(2.0 * math.pi * 440.0 * t / sample_rate)
+                       for t in range(int(duration * sample_rate))]
+        self.sounds['fire'] = pygame.mixer.Sound(bytes(fire_samples))
+        
+        # Thrust sound (low rumble)
+        duration = 1.0
+        thrust_samples = []
+        for t in range(int(duration * sample_rate)):
+            sample = int(2048 * math.sin(2.0 * math.pi * 100.0 * t / sample_rate))
+            sample += int(1024 * math.sin(2.0 * math.pi * 80.0 * t / sample_rate))
+            thrust_samples.append(sample)
+        self.sounds['thrust'] = pygame.mixer.Sound(bytes(thrust_samples))
+        
+        # Explosion sounds (different pitches for different sizes)
+        def create_explosion(base_freq, duration):
+            samples = []
+            decay = 3.0
+            for t in range(int(duration * sample_rate)):
+                time = t / sample_rate
+                amplitude = 4096 * math.exp(-decay * time)
+                sample = int(amplitude * math.sin(2.0 * math.pi * base_freq * time))
+                samples.append(sample)
+            return pygame.mixer.Sound(bytes(samples))
+        
+        self.sounds['big_explosion'] = create_explosion(100, 0.5)
+        self.sounds['medium_explosion'] = create_explosion(200, 0.4)
+        self.sounds['small_explosion'] = create_explosion(300, 0.3)
+        self.sounds['ship_explosion'] = create_explosion(60, 0.8)
+        
+        # Beat sound (low thump)
+        duration = 0.1
+        beat_samples = []
+        for t in range(int(duration * sample_rate)):
+            time = t / sample_rate
+            amplitude = 4096 * math.exp(-10 * time)
+            sample = int(amplitude * math.sin(2.0 * math.pi * 50.0 * time))
+            beat_samples.append(sample)
+        self.sounds['beat'] = pygame.mixer.Sound(bytes(beat_samples))
+        
+        # Extra life sound (high pitched jingle)
+        duration = 0.5
+        extra_life_samples = []
+        for t in range(int(duration * sample_rate)):
+            time = t / sample_rate
+            freq = 440 + 440 * time
+            sample = int(4096 * math.sin(2.0 * math.pi * freq * time))
+            extra_life_samples.append(sample)
+        self.sounds['extra_life'] = pygame.mixer.Sound(bytes(extra_life_samples))
+
+    def play(self, sound_name):
+        if sound_name in self.sounds:
+            self.sounds[sound_name].play()
+    
+    def start_thrust(self):
+        if not self.thrust_playing:
+            self.sounds['thrust'].play(-1)  # Loop indefinitely
+            self.thrust_playing = True
+    
+    def stop_thrust(self):
+        if self.thrust_playing:
+            self.sounds['thrust'].stop()
+            self.thrust_playing = False
+    
+    def update_beat(self, asteroid_count):
+        # Increase tempo based on remaining asteroids
+        current_time = pygame.time.get_ticks()
+        self.beat_tempo = 1.0 + (20 - min(20, asteroid_count)) * 0.1
+        if current_time - self.last_beat_time > 1000 / self.beat_tempo:
+            self.play('beat')
+            self.last_beat_time = current_time
 
 class Ship:
     def __init__(self, pos, angle=0):
@@ -189,6 +277,7 @@ def draw_ui(surface, score, lives, game_over):
 
 def main():
     pygame.init()
+    pygame.mixer.init(44100, -16, 2, 1024)
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Asteroids")
     clock = pygame.time.Clock()
@@ -210,6 +299,9 @@ def main():
                  for _ in range(5)]
     bullets = []
 
+    # Initialize sound effects
+    sound_effects = SoundEffects()
+
     running = True
     while running:
         clock.tick(FPS)
@@ -221,10 +313,14 @@ def main():
             if event.type == pygame.KEYDOWN and in_game:
                 if event.key == pygame.K_SPACE:
                     bullets.append(Bullet(ship.pos, ship.angle))
+                    sound_effects.play('fire')
 
         if in_game:
             # Update particles
             particles = [p for p in particles if p.update()]
+
+            # Update background beat
+            sound_effects.update_beat(len(asteroids))
 
             # Handle continuous key presses for rotation and acceleration
             keys = pygame.key.get_pressed()
@@ -234,6 +330,9 @@ def main():
                 ship.rotate(1)
             if keys[pygame.K_UP]:
                 ship.accelerate()
+                sound_effects.start_thrust()
+            else:
+                sound_effects.stop_thrust()
 
             # Update game objects
             ship.update()
@@ -257,29 +356,37 @@ def main():
                         except ValueError:
                             pass
                         score += 100
+                        
+                        # Play appropriate explosion sound based on asteroid size
+                        if asteroid.size > 30:
+                            sound_effects.play('big_explosion')
+                        elif asteroid.size > 15:
+                            sound_effects.play('medium_explosion')
+                        else:
+                            sound_effects.play('small_explosion')
+                            
                         if asteroid.size > 15:
                             for _ in range(2):
                                 new_size = asteroid.size // 2
-                                new_asteroid = Asteroid(asteroid.pos, new_size)
-                                asteroids.append(new_asteroid)
+                                asteroids.append(Asteroid(asteroid.pos, new_size))
                         break
 
             # Check for ship collisions
-            if not ship.invulnerable:  # Only check collisions if not invulnerable
+            if not ship.invulnerable:
                 for asteroid in asteroids:
                     if ship.pos.distance_to(asteroid.pos) < (asteroid.size + SHIP_COLLISION_RADIUS):
                         print("Collision detected! Ship hit an asteroid.")
                         lives -= 1
+                        sound_effects.play('ship_explosion')
                         
                         # Create explosion particles
-                        for _ in range(20):  # Create 20 particles
+                        for _ in range(20):
                             angle = random.uniform(0, 2 * math.pi)
                             speed = random.uniform(2, 5)
                             velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
                             particles.append(Particle(ship.pos, velocity))
                         
                         if lives > 0:
-                            # Reset ship position and velocity
                             ship = reset_ship()
                         else:
                             in_game = False
