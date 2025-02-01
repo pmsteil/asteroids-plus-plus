@@ -320,17 +320,29 @@ def create_explosion_particles(pos, count=20):
         particles.append(Particle(pos, velocity))
     return particles
 
-def draw_ui(surface, score, lives, game_over):
+def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False):
     font = pygame.font.SysFont('Arial', 24)
     # Draw score at top left
     score_text = font.render(f"Score: {score}", True, WHITE)
     surface.blit(score_text, (10, 10))
+
+    # Draw level at top center
+    level_text = font.render(f"Level {level}", True, WHITE)
+    level_rect = level_text.get_rect(midtop=(WIDTH/2, 10))
+    surface.blit(level_text, level_rect)
 
     # Draw lives icons at upper right
     for i in range(lives):
         icon_x = WIDTH - (i + 1) * 30
         icon_y = 10
         draw_ship_icon(surface, (icon_x, icon_y + 10))
+
+    # If showing level announcement
+    if show_level_text:
+        level_font = pygame.font.SysFont('Arial', 48)
+        announce_text = level_font.render(f'Level {level}', True, WHITE)
+        text_rect = announce_text.get_rect(center=(WIDTH / 2, HEIGHT / 2))
+        surface.blit(announce_text, text_rect)
 
     # If game over, display GAME OVER message and restart instruction
     if game_over:
@@ -357,26 +369,52 @@ def main():
         return ship
 
     def init_game():
-        nonlocal ship, lives, score, in_game, game_over, particles, asteroids, bullets
+        nonlocal ship, lives, score, in_game, game_over, particles, asteroids, bullets, level, level_start_time, show_level_text
         ship = reset_ship()
         lives = 3
         score = 0
+        level = 1
         in_game = True
         game_over = False
         particles = []
-        asteroids = [Asteroid((random.randrange(WIDTH), random.randrange(HEIGHT)), random.randint(20, 40))
-                     for _ in range(5)]
-        bullets = []
+        level_start_time = pygame.time.get_ticks()
+        show_level_text = True
+        # Start with base number of asteroids
+        start_new_level(level)
+
+    def start_new_level(level_num):
+        nonlocal asteroids, level_start_time, show_level_text
+        asteroids = []
+        # Base number of asteroids is 5, increases by 10% each level (rounded up)
+        num_asteroids = math.ceil(5 * (1 + (level_num - 1) * 0.1))
+        # Asteroids get slightly faster each level
+        base_speed = 1 + (level_num - 1) * 0.1
+        for _ in range(num_asteroids):
+            # Spawn asteroids away from the ship
+            while True:
+                pos = pygame.Vector2(random.randrange(WIDTH), random.randrange(HEIGHT))
+                if pos.distance_to(ship.pos) > 100:  # Minimum safe distance
+                    break
+            size = random.randint(20, 40)
+            new_asteroid = Asteroid(pos, size)
+            # Increase asteroid speed based on level
+            new_asteroid.velocity *= base_speed
+            asteroids.append(new_asteroid)
+        level_start_time = pygame.time.get_ticks()
+        show_level_text = True
 
     # Initialize game variables
     ship = None
     lives = 0
     score = 0
+    level = 1
     in_game = True
     game_over = False
     particles = []
     asteroids = []
     bullets = []
+    level_start_time = 0
+    show_level_text = False
     init_game()  # Initialize all game variables
 
     # Initialize sound effects
@@ -385,6 +423,12 @@ def main():
     running = True
     while running:
         clock.tick(FPS)
+        current_time = pygame.time.get_ticks()
+
+        # Handle level text display
+        if show_level_text and current_time - level_start_time > 2000:  # Show for 2 seconds
+            show_level_text = False
+
         # Process events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -397,6 +441,12 @@ def main():
                     sound_effects.play('fire')
 
         if in_game:
+            # Check if level is complete
+            if len(asteroids) == 0:
+                level += 1
+                sound_effects.play('extra_life')  # Use as level-up sound
+                start_new_level(level)
+
             # Update particles
             particles = [p for p in particles if p.update()]
 
@@ -449,7 +499,10 @@ def main():
                         if asteroid.size > 15:
                             for _ in range(2):
                                 new_size = asteroid.size // 2
-                                asteroids.append(Asteroid(asteroid.pos, new_size))
+                                new_asteroid = Asteroid(asteroid.pos, new_size)
+                                # Inherit parent asteroid's speed scaling
+                                new_asteroid.velocity *= asteroid.velocity.length() / 2
+                                asteroids.append(new_asteroid)
                         break
 
             # Check for ship collisions
@@ -487,7 +540,7 @@ def main():
         # Draw particles
         for particle in particles:
             particle.draw(screen)
-        draw_ui(screen, score, lives, game_over)
+        draw_ui(screen, score, lives, game_over, level, show_level_text)
         pygame.display.flip()
 
     pygame.quit()
