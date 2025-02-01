@@ -3,6 +3,7 @@ import sys
 import random
 import math
 import os
+import numpy as np
 
 # Game constants
 WIDTH, HEIGHT = 800, 600
@@ -28,33 +29,27 @@ class SoundEffects:
     def _create_sounds(self):
         # Create synthesized sounds using pygame
         sample_rate = 44100
-        bit_depth = -16
+        max_amplitude = np.iinfo(np.int16).max
         
         # Fire sound (short high-pitched beep)
         duration = 0.1  # seconds
-        fire_samples = [4096 * math.sin(2.0 * math.pi * 440.0 * t / sample_rate)
-                       for t in range(int(duration * sample_rate))]
-        self.sounds['fire'] = pygame.mixer.Sound(bytes(fire_samples))
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        fire_samples = (max_amplitude * 0.5 * np.sin(2.0 * np.pi * 440.0 * t)).astype(np.int16)
+        self.sounds['fire'] = pygame.mixer.Sound(fire_samples.tobytes())
         
         # Thrust sound (low rumble)
         duration = 1.0
-        thrust_samples = []
-        for t in range(int(duration * sample_rate)):
-            sample = int(2048 * math.sin(2.0 * math.pi * 100.0 * t / sample_rate))
-            sample += int(1024 * math.sin(2.0 * math.pi * 80.0 * t / sample_rate))
-            thrust_samples.append(sample)
-        self.sounds['thrust'] = pygame.mixer.Sound(bytes(thrust_samples))
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        thrust_samples = (max_amplitude * 0.25 * np.sin(2.0 * np.pi * 100.0 * t) + 
+                         max_amplitude * 0.125 * np.sin(2.0 * np.pi * 80.0 * t)).astype(np.int16)
+        self.sounds['thrust'] = pygame.mixer.Sound(thrust_samples.tobytes())
         
         # Explosion sounds (different pitches for different sizes)
         def create_explosion(base_freq, duration):
-            samples = []
-            decay = 3.0
-            for t in range(int(duration * sample_rate)):
-                time = t / sample_rate
-                amplitude = 4096 * math.exp(-decay * time)
-                sample = int(amplitude * math.sin(2.0 * math.pi * base_freq * time))
-                samples.append(sample)
-            return pygame.mixer.Sound(bytes(samples))
+            t = np.linspace(0, duration, int(sample_rate * duration))
+            decay = np.exp(-3.0 * t)
+            samples = (max_amplitude * 0.5 * decay * np.sin(2.0 * np.pi * base_freq * t)).astype(np.int16)
+            return pygame.mixer.Sound(samples.tobytes())
         
         self.sounds['big_explosion'] = create_explosion(100, 0.5)
         self.sounds['medium_explosion'] = create_explosion(200, 0.4)
@@ -63,23 +58,17 @@ class SoundEffects:
         
         # Beat sound (low thump)
         duration = 0.1
-        beat_samples = []
-        for t in range(int(duration * sample_rate)):
-            time = t / sample_rate
-            amplitude = 4096 * math.exp(-10 * time)
-            sample = int(amplitude * math.sin(2.0 * math.pi * 50.0 * time))
-            beat_samples.append(sample)
-        self.sounds['beat'] = pygame.mixer.Sound(bytes(beat_samples))
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        decay = np.exp(-10.0 * t)
+        beat_samples = (max_amplitude * 0.5 * decay * np.sin(2.0 * np.pi * 50.0 * t)).astype(np.int16)
+        self.sounds['beat'] = pygame.mixer.Sound(beat_samples.tobytes())
         
         # Extra life sound (high pitched jingle)
         duration = 0.5
-        extra_life_samples = []
-        for t in range(int(duration * sample_rate)):
-            time = t / sample_rate
-            freq = 440 + 440 * time
-            sample = int(4096 * math.sin(2.0 * math.pi * freq * time))
-            extra_life_samples.append(sample)
-        self.sounds['extra_life'] = pygame.mixer.Sound(bytes(extra_life_samples))
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        freq = 440.0 * (1 + t)
+        extra_life_samples = (max_amplitude * 0.5 * np.sin(2.0 * np.pi * freq * t)).astype(np.int16)
+        self.sounds['extra_life'] = pygame.mixer.Sound(extra_life_samples.tobytes())
 
     def play(self, sound_name):
         if sound_name in self.sounds:
