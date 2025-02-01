@@ -5,6 +5,8 @@ import math
 import os
 import numpy as np
 import array
+import json
+from pathlib import Path
 
 # Game constants
 WIDTH, HEIGHT = 800, 600
@@ -14,6 +16,10 @@ FPS = 60
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
+YELLOW = (255, 255, 0)
+
+# File paths
+HIGH_SCORES_FILE = Path(__file__).parent / "high_scores.json"
 
 # Approximate collision radius for the ship (tweak as needed)
 SHIP_COLLISION_RADIUS = 15
@@ -320,7 +326,38 @@ def create_explosion_particles(pos, count=20):
         particles.append(Particle(pos, velocity))
     return particles
 
-def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False):
+class HighScores:
+    def __init__(self):
+        self.scores = []
+        self.load_scores()
+    
+    def load_scores(self):
+        if HIGH_SCORES_FILE.exists():
+            try:
+                with open(HIGH_SCORES_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.scores = data.get('scores', [])
+            except (json.JSONDecodeError, IOError):
+                self.scores = []
+        else:
+            self.scores = []
+    
+    def save_scores(self):
+        with open(HIGH_SCORES_FILE, 'w') as f:
+            json.dump({'scores': self.scores}, f)
+    
+    def is_high_score(self, score):
+        return len(self.scores) < 10 or score > self.scores[-1]['score']
+    
+    def add_score(self, name, score):
+        self.scores.append({'name': name[:10], 'score': score})  # Limit name to 10 chars
+        # Sort scores by score value, highest first
+        self.scores.sort(key=lambda x: x['score'], reverse=True)
+        # Keep only top 10
+        self.scores = self.scores[:10]
+        self.save_scores()
+
+def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False, high_scores=None, entering_name=False, current_name=""):
     font = pygame.font.SysFont('Arial', 24)
     # Draw score at top left
     score_text = font.render(f"Score: {score}", True, WHITE)
@@ -344,17 +381,47 @@ def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False):
         text_rect = announce_text.get_rect(center=(WIDTH / 2, HEIGHT / 2))
         surface.blit(announce_text, text_rect)
 
-    # If game over, display GAME OVER message and restart instruction
+    # If game over, display messages and high scores
     if game_over:
-        game_font = pygame.font.SysFont('Arial', 48)
-        game_over_text = game_font.render('GAME OVER', True, WHITE)
-        text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2))
-        surface.blit(game_over_text, text_rect)
+        y_offset = HEIGHT / 4
         
-        restart_font = pygame.font.SysFont('Arial', 24)
-        restart_text = restart_font.render('Press R to Restart', True, WHITE)
-        restart_rect = restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 50))
-        surface.blit(restart_text, restart_rect)
+        # Game Over text
+        game_font = pygame.font.SysFont('Arial', 48)
+        game_over_text = game_font.render('GAME OVER', True, RED)
+        text_rect = game_over_text.get_rect(center=(WIDTH / 2, y_offset))
+        surface.blit(game_over_text, text_rect)
+        y_offset += 50
+
+        if entering_name:
+            name_prompt = font.render('Enter your name:', True, YELLOW)
+            name_rect = name_prompt.get_rect(center=(WIDTH / 2, y_offset))
+            surface.blit(name_prompt, name_rect)
+            y_offset += 30
+            
+            name_text = font.render(current_name + "_", True, WHITE)
+            name_rect = name_text.get_rect(center=(WIDTH / 2, y_offset))
+            surface.blit(name_text, name_rect)
+            y_offset += 50
+        else:
+            # Instructions
+            restart_text = font.render('Press R to Restart or Q to Quit', True, WHITE)
+            restart_rect = restart_text.get_rect(center=(WIDTH / 2, y_offset))
+            surface.blit(restart_text, restart_rect)
+            y_offset += 50
+
+        if high_scores and high_scores.scores:
+            # High Scores title
+            title_text = game_font.render('High Scores', True, YELLOW)
+            title_rect = title_text.get_rect(center=(WIDTH / 2, y_offset))
+            surface.blit(title_text, title_rect)
+            y_offset += 50
+
+            # Display high scores
+            for i, score_data in enumerate(high_scores.scores):
+                score_text = font.render(f"{i+1}. {score_data['name']:<10} {score_data['score']:>6}", True, WHITE)
+                score_rect = score_text.get_rect(center=(WIDTH / 2, y_offset))
+                surface.blit(score_text, score_rect)
+                y_offset += 30
 
 def main():
     pygame.init()
@@ -363,23 +430,43 @@ def main():
     pygame.display.set_caption("Asteroids")
     clock = pygame.time.Clock()
 
+    # Initialize high scores
+    high_scores = HighScores()
+    
+    # Initialize game state variables
+    ship = None
+    lives = 0
+    score = 0
+    level = 1
+    in_game = True
+    game_over = False
+    entering_name = False
+    current_name = ""
+    particles = []
+    asteroids = []
+    bullets = []
+    level_start_time = 0
+    show_level_text = False
+    
     def reset_ship():
         ship = Ship((WIDTH / 2, HEIGHT / 2))
         ship.make_invulnerable()
         return ship
 
     def init_game():
-        nonlocal ship, lives, score, in_game, game_over, particles, asteroids, bullets, level, level_start_time, show_level_text
+        nonlocal ship, lives, score, in_game, game_over, particles, asteroids, bullets, level
+        nonlocal level_start_time, show_level_text, entering_name, current_name
         ship = reset_ship()
         lives = 3
         score = 0
         level = 1
         in_game = True
         game_over = False
+        entering_name = False
+        current_name = ""
         particles = []
         level_start_time = pygame.time.get_ticks()
         show_level_text = True
-        # Start with base number of asteroids
         start_new_level(level)
 
     def start_new_level(level_num):
@@ -403,18 +490,6 @@ def main():
         level_start_time = pygame.time.get_ticks()
         show_level_text = True
 
-    # Initialize game variables
-    ship = None
-    lives = 0
-    score = 0
-    level = 1
-    in_game = True
-    game_over = False
-    particles = []
-    asteroids = []
-    bullets = []
-    level_start_time = 0
-    show_level_text = False
     init_game()  # Initialize all game variables
 
     # Initialize sound effects
@@ -433,9 +508,22 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r and game_over:
-                    init_game()
+                if game_over:
+                    if entering_name:
+                        if event.key == pygame.K_RETURN and current_name.strip():
+                            high_scores.add_score(current_name, score)
+                            entering_name = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            current_name = current_name[:-1]
+                        elif len(current_name) < 10 and event.unicode.isalnum():
+                            current_name += event.unicode
+                    else:
+                        if event.key == pygame.K_r:
+                            init_game()
+                        elif event.key in (pygame.K_q, pygame.K_ESCAPE):
+                            running = False
                 elif event.key == pygame.K_SPACE and in_game:
                     bullets.append(Bullet(ship.pos, ship.angle))
                     sound_effects.play('fire')
@@ -527,6 +615,10 @@ def main():
                         else:
                             in_game = False
                             game_over = True
+                            # Check for high score
+                            if high_scores.is_high_score(score):
+                                entering_name = True
+                                current_name = ""
                         break
 
         # Render the scene
@@ -540,7 +632,8 @@ def main():
         # Draw particles
         for particle in particles:
             particle.draw(screen)
-        draw_ui(screen, score, lives, game_over, level, show_level_text)
+        draw_ui(screen, score, lives, game_over, level, show_level_text, 
+                high_scores if game_over else None, entering_name, current_name)
         pygame.display.flip()
 
     pygame.quit()
