@@ -19,6 +19,14 @@ DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
 EXTRA_LIFE_SCORE = 10000  # Score needed for an extra life
+STARTING_ASTEROIDS = 5  # Number of asteroids at level 1
+ASTEROIDS_LEVEL_INCREASE = 10  # Percentage increase in asteroids per level
+STARTING_GUNS = 2  # Number of guns to start with (1-4)
+ASTEROID_SIZES = {
+    'LARGE': 40,
+    'MEDIUM': 25,
+    'SMALL': 15
+}
 
 @dataclass
 class Particle:
@@ -52,7 +60,7 @@ class Ship:
         self.scale_x, self.scale_y = scale
         self.invulnerable = True
         self.invulnerable_timer = 120  # 2 seconds at 60 FPS
-        
+
         # Define ship shape relative to center
         self.points = [
             Vector2(0, -10),  # Nose
@@ -65,40 +73,40 @@ class Ship:
         """Get the position of the ship's nose in world coordinates"""
         # Convert angle to radians
         rad = math.radians(self.angle)
-        
+
         # Get the nose point (first point in self.points)
         nose = self.points[0]
-        
+
         # Rotate the nose point
         rotated_x = nose.x * math.cos(rad) - nose.y * math.sin(rad)
         rotated_y = nose.x * math.sin(rad) + nose.y * math.cos(rad)
-        
+
         # Scale and translate to world position
         world_pos = Vector2(
             self.pos.x + rotated_x * self.scale_x,
             self.pos.y + rotated_y * self.scale_y
         )
-        
+
         return world_pos
 
     def get_rear_position(self) -> Vector2:
         """Get the position of the ship's rear center in world coordinates"""
         # Convert angle to radians
         rad = math.radians(self.angle)
-        
+
         # Get the rear center point (third point in self.points)
         rear = self.points[2]
-        
+
         # Rotate the rear point
         rotated_x = rear.x * math.cos(rad) - rear.y * math.sin(rad)
         rotated_y = rear.x * math.sin(rad) + rear.y * math.cos(rad)
-        
+
         # Scale and translate to world position
         world_pos = Vector2(
             self.pos.x + rotated_x * self.scale_x,
             self.pos.y + rotated_y * self.scale_y
         )
-        
+
         return world_pos
 
     def get_transformed_points(self) -> List[Vector2]:
@@ -509,6 +517,8 @@ class SoundEffects:
 
                 # Combine and apply volume envelope
                 value = clamp(int(max_amplitude * (base + noise) * time_factor * volume))
+                value = max(min(value, 32767), -32768)
+
                 samples[i * 2] = value
                 samples[i * 2 + 1] = value
 
@@ -803,7 +813,7 @@ class Game:
         self.lives = 3
         self.game_over = False
         self.paused = False
-        self.bullet_streams = 1  # Number of bullet streams (1-4)
+        self.num_guns = STARTING_GUNS  # Number of guns to start with (1-4)
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
@@ -857,8 +867,14 @@ class Game:
         self.asteroids.clear()
         self.particles.clear()
 
-        # Create new asteroids
-        num_asteroids = 2 + self.level
+        # Calculate number of asteroids with percentage increase per level
+        # For level 1: STARTING_ASTEROIDS
+        # For level 2: STARTING_ASTEROIDS * (1 + 10%) = STARTING_ASTEROIDS * 1.1
+        # For level 3: STARTING_ASTEROIDS * (1 + 20%) = STARTING_ASTEROIDS * 1.2
+        # etc.
+        increase_factor = 1 + (ASTEROIDS_LEVEL_INCREASE / 100) * (level_num - 1)
+        num_asteroids = round(STARTING_ASTEROIDS * increase_factor)
+
         for _ in range(num_asteroids):
             # Random position along the edge of the screen
             if random.random() < 0.5:
@@ -867,10 +883,10 @@ class Game:
             else:
                 x = random.random() * self.width
                 y = random.choice([0, self.height])
-            
+
             # Create large asteroid
             self.asteroids.append(
-                Asteroid(Vector2(x, y), 40, (self.scale_x, self.scale_y))
+                Asteroid(Vector2(x, y), ASTEROID_SIZES['LARGE'], (self.scale_x, self.scale_y))
             )
 
     def handle_collisions(self) -> None:
@@ -945,22 +961,20 @@ class Game:
             )
 
             # Split asteroid if large enough
-            if asteroid.size >= 40:  # Large asteroid
+            if asteroid.size >= ASTEROID_SIZES['LARGE']:  # Large asteroid
                 self.sound_effects.play('explosion_large')
                 # Split into two medium asteroids
                 for _ in range(2):
-                    new_size = 25  # Fixed medium size
                     self.asteroids.append(
-                        Asteroid(Vector2(asteroid.pos), new_size, (self.scale_x, self.scale_y))
+                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['MEDIUM'], (self.scale_x, self.scale_y))
                     )
                 points = 100
-            elif asteroid.size >= 25:  # Medium asteroid
+            elif asteroid.size >= ASTEROID_SIZES['MEDIUM']:  # Medium asteroid
                 self.sound_effects.play('explosion_medium')
                 # Split into two small asteroids
                 for _ in range(2):
-                    new_size = 15  # Fixed small size
                     self.asteroids.append(
-                        Asteroid(Vector2(asteroid.pos), new_size, (self.scale_x, self.scale_y))
+                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['SMALL'], (self.scale_x, self.scale_y))
                     )
                 points = 150
             else:  # Small asteroid
@@ -993,11 +1007,11 @@ class Game:
         base_angle = self.ship.angle
 
         # Calculate angles based on number of streams
-        if self.bullet_streams == 1:
+        if self.num_guns == 1:
             angles = [0]  # Single bullet straight ahead
-        elif self.bullet_streams == 2:
+        elif self.num_guns == 2:
             angles = [-5, 5]  # Slightly spread
-        elif self.bullet_streams == 3:
+        elif self.num_guns == 3:
             angles = [-10, 0, 10]  # Wider spread
         else:  # 4 streams
             angles = [-15, -5, 5, 15]  # Widest spread
@@ -1007,10 +1021,10 @@ class Game:
             # Calculate bullet direction based on ship's angle plus offset
             bullet_angle = base_angle + angle_offset
             rad = math.radians(bullet_angle)
-            
+
             # Direction is opposite to where the ship is pointing
             direction = Vector2(math.sin(rad), -math.cos(rad))
-            
+
             # All bullets start at the nose position
             self.bullets.append(
                 Bullet(nose_pos, direction * 10, (self.scale_x, self.scale_y))
@@ -1024,7 +1038,7 @@ class Game:
         self.lives = 3
         self.game_over = False
         self.paused = False
-        self.bullet_streams = 1  # Number of bullet streams (1-4)
+        self.num_guns = STARTING_GUNS  # Number of guns to start with (1-4)
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
@@ -1073,7 +1087,7 @@ class Game:
                         else:
                             pygame.mixer.unpause()  # Unpause all sound channels
                     elif event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4] and not self.game_over:
-                        self.bullet_streams = int(event.unicode)
+                        self.num_guns = int(event.unicode)
                     elif self.entering_name:
                         if event.key == pygame.K_RETURN and self.current_name:
                             self.high_scores.add_score(self.current_name, self.score, self.level)
