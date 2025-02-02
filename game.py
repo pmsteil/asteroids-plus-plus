@@ -482,30 +482,18 @@ class HighScores:
         self.load_scores()
 
     def load_scores(self) -> None:
-        """Load high scores from file"""
+        """Load high scores from file or create if doesn't exist"""
         try:
             with open(HIGH_SCORES_FILE, 'r') as f:
                 data = json.load(f)
                 self.scores = data.get('scores', [])
-                if not self.scores:  # If scores is empty or not found
-                    # Initialize with existing scores
-                    self.scores = [
-                        {"name": "patiman", "score": 4100},
-                        {"name": "Patiman", "score": 1800},
-                        {"name": "Patrick", "score": 1200},
-                        {"name": "patiman", "score": 1200},
-                        {"name": "patiman", "score": 800}
-                    ]
-                    self.save_scores()
+                # Add level field if it doesn't exist in older scores
+                for score in self.scores:
+                    if 'level' not in score:
+                        score['level'] = 1
         except (FileNotFoundError, json.JSONDecodeError):
-            # Initialize with existing scores
-            self.scores = [
-                {"name": "patiman", "score": 4100},
-                {"name": "Patiman", "score": 1800},
-                {"name": "Patrick", "score": 1200},
-                {"name": "patiman", "score": 1200},
-                {"name": "patiman", "score": 800}
-            ]
+            # Create new empty scores file
+            self.scores = []
             self.save_scores()
 
     def save_scores(self) -> None:
@@ -517,9 +505,13 @@ class HighScores:
         """Check if score qualifies for high scores list"""
         return len(self.scores) < 10 or score > self.scores[-1]['score']
 
-    def add_score(self, name: str, score: int) -> None:
-        """Add a new high score"""
-        self.scores.append({'name': name[:10], 'score': score})  # Limit name to 10 chars
+    def add_score(self, name: str, score: int, level: int) -> None:
+        """Add a new high score with level reached"""
+        self.scores.append({
+            'name': name[:10],  # Limit name to 10 chars
+            'score': score,
+            'level': level
+        })
         # Sort scores by score value, highest first
         self.scores.sort(key=lambda x: x['score'], reverse=True)
         # Keep only top 10
@@ -616,8 +608,11 @@ def draw_ui(
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     YELLOW = (255, 255, 0)
+    GRAY = (180, 180, 180)
     
     font = pygame.font.SysFont('Arial', int(24 * scale[0]))
+    small_font = pygame.font.SysFont('Arial', int(18 * scale[0]))  # Smaller font for scores
+    
     # Draw score at top left
     score_text = font.render(f"Score: {score}", True, WHITE)
     surface.blit(score_text, (10 * scale[0], 10 * scale[1]))
@@ -673,14 +668,25 @@ def draw_ui(
             title_text = game_font.render('High Scores', True, YELLOW)
             title_rect = title_text.get_rect(center=(surface.get_width() / 2, y_offset))
             surface.blit(title_text, title_rect)
-            y_offset += 50 * scale[1]
+            y_offset += 40 * scale[1]  # Reduced spacing
+
+            # Column headers
+            header_text = small_font.render("Rank  Name         Score   Level", True, GRAY)
+            header_rect = header_text.get_rect(center=(surface.get_width() / 2, y_offset))
+            surface.blit(header_text, header_rect)
+            y_offset += 25 * scale[1]  # Reduced spacing
 
             # Display high scores
             for i, score_data in enumerate(high_scores.scores):
-                score_text = font.render(f"{i+1}. {score_data['name']:<10} {score_data['score']:>6}", True, WHITE)
+                level_text = f"L{score_data.get('level', 1)}"
+                score_text = small_font.render(
+                    f"{i+1:2d}.  {score_data['name']:<10} {score_data['score']:>6}  {level_text:>3}", 
+                    True, 
+                    WHITE
+                )
                 score_rect = score_text.get_rect(center=(surface.get_width() / 2, y_offset))
                 surface.blit(score_text, score_rect)
-                y_offset += 30 * scale[1]
+                y_offset += 25 * scale[1]  # Reduced spacing
 
 class Game:
     def __init__(self) -> None:
@@ -952,7 +958,7 @@ class Game:
                         running = False
                     elif self.entering_name:
                         if event.key == pygame.K_RETURN and self.current_name:
-                            self.high_scores.add_score(self.current_name, self.score)
+                            self.high_scores.add_score(self.current_name, self.score, self.level)
                             self.entering_name = False
                         elif event.key == pygame.K_BACKSPACE:
                             self.current_name = self.current_name[:-1]
