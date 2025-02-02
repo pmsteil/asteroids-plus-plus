@@ -528,10 +528,9 @@ class Particle:
 
 def create_thruster_particles(pos, angle, scale=(1, 1)):
     particles = []
-    # Add 180 degrees to make thrust come out the back
-    thrust_angle = angle + 180
-    rad = math.radians(thrust_angle)
-    thrust_dir = pygame.Vector2(-math.sin(rad), -math.cos(rad))
+    rad = math.radians(angle)
+    # Use same direction as ship thrust
+    thrust_dir = pygame.Vector2(math.sin(rad), -math.cos(rad))
     
     for _ in range(3):  # Create 3 particles per frame
         spread = random.uniform(-0.5, 0.5)
@@ -547,7 +546,8 @@ def create_thruster_particles(pos, angle, scale=(1, 1)):
         )
         
         speed = random.uniform(3, 6)
-        particle_vel = spread_dir * speed
+        # Particles should go opposite direction of thrust
+        particle_vel = -spread_dir * speed
         
         # Start particles at the rear position
         start_pos = pygame.Vector2(pos)
