@@ -360,6 +360,38 @@ class SoundEffects:
 
         return mixer.Sound(buffer=samples)
 
+    def _create_power_up_sound(self) -> mixer.Sound:
+        """Create a power up sound for extra life"""
+        sample_rate = 44100
+        duration = 1.0
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            
+            # Rising pitch from 220Hz to 880Hz (A3 to A5)
+            freq = 220 + (660 * (t / duration))
+            
+            # Amplitude envelope: quick attack, long decay
+            envelope = min(1.0, t * 10) * (1.0 - t)
+            
+            # Main tone plus harmonics
+            value = (
+                math.sin(2.0 * math.pi * freq * t) * 0.5 +  # Base frequency
+                math.sin(2.0 * math.pi * freq * 2 * t) * 0.25 +  # First harmonic
+                math.sin(2.0 * math.pi * freq * 4 * t) * 0.125  # Second harmonic
+            )
+            
+            # Apply envelope
+            value = int(32767 * value * envelope)
+            value = max(min(value, 32767), -32768)
+            
+            samples[i * 2] = value
+            samples[i * 2 + 1] = value
+
+        return mixer.Sound(buffer=samples)
+
     def _create_sounds(self) -> None:
         import array
         sample_rate = 44100
@@ -458,6 +490,9 @@ class SoundEffects:
 
         # Final explosion sound
         self.sounds['final_explosion'] = self.create_final_explosion()
+
+        # Power up sound
+        self.sounds['power_up'] = self._create_power_up_sound()
 
     def play(self, sound_name: str) -> None:
         if sound_name in self.sounds:
@@ -581,46 +616,41 @@ def create_explosion_particles(
         particles.append(Particle(Vector2(pos), velocity, color, life, life, size, scale[0], scale[1]))
     return particles
 
-def draw_ship_icon(surface: Surface, pos: Union[Vector2, Tuple[float, float]], scale: Tuple[float, float] = (1, 1)) -> None:
+def draw_ship_icon(surface: Surface, pos: Union[Vector2, Tuple[float, float]], 
+                  scale: Tuple[float, float] = (1, 1),
+                  color: Tuple[int, int, int] = (255, 255, 255)) -> None:
     """Draw a small ship icon for the lives display"""
     # Convert tuple to Vector2 if needed
     if isinstance(pos, tuple):
         pos = Vector2(pos)
-
+        
     # Define ship points (smaller version of ship)
     points = [
         Vector2(0, -8),  # Nose
         Vector2(5, 5),   # Right
         Vector2(-5, 5)   # Left
     ]
-
+    
     # Scale and transform points
     screen_points = []
     for p in points:
         screen_points.append(
             (p.x * scale[0] + pos.x, p.y * scale[1] + pos.y)
         )
-
+    
     # Draw the ship outline
-    pygame.draw.polygon(surface, (255, 255, 255), screen_points, 1)
+    pygame.draw.polygon(surface, color, screen_points, 1)
 
-def draw_ui(
-    surface: Surface,
-    score: int,
-    lives: int,
-    level: int,
-    scale: Tuple[float, float],
-    game_over: bool = False,
-    show_level_text: bool = False,
-    entering_name: bool = False,
-    current_name: str = "",
-    high_scores: Optional[HighScores] = None
-) -> None:
+def draw_ui(surface: Surface, score: int, lives: int, level: int, scale: Tuple[float, float],
+            game_over: bool = False, show_level_text: bool = False, 
+            entering_name: bool = False, current_name: str = "", 
+            high_scores: Optional[HighScores] = None,
+            new_life_timer: int = 0) -> None:
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     YELLOW = (255, 255, 0)
     GRAY = (180, 180, 180)
-
+    
     font = pygame.font.SysFont('Arial', int(24 * scale[0]))
     small_font = pygame.font.SysFont('Arial', int(14 * scale[0]))  # Smaller font for scores
 
@@ -633,11 +663,21 @@ def draw_ui(
     level_rect = level_text.get_rect(midtop=(surface.get_width() / 2, 10 * scale[1]))
     surface.blit(level_text, level_rect)
 
-    # Draw lives icons at upper right
+    # Draw lives at upper right
+    lives_x = surface.get_width() - (35 * scale[0])
+    lives_y = 20 * scale[1]
+    
     for i in range(lives):
-        icon_x = surface.get_width() - (i + 1) * 30 * scale[0]
-        icon_y = 10 * scale[1]
-        draw_ship_icon(surface, (icon_x, icon_y + 10 * scale[1]), scale=scale)
+        # If this is the newest life and animation is active, pulse it
+        if i == lives - 1 and new_life_timer > 0:
+            # Use the same pulse logic as ship invulnerability
+            pulse = (math.sin(new_life_timer * math.pi / 15) + 1) / 2  # Faster pulse
+            pulse = 0.4 + (pulse * 0.6)  # Range 0.4 to 1.0
+            color = (int(40 * pulse), int(180 * pulse), int(40 * pulse))
+        else:
+            color = WHITE
+            
+        draw_ship_icon(surface, (lives_x - i * 30 * scale[0], lives_y), scale=scale, color=color)
 
     # If showing level announcement
     if show_level_text:
@@ -737,6 +777,7 @@ class Game:
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
+        self.new_life_timer = 0  # Timer for new life animation
 
         # Game objects
         self.ship = None
@@ -882,7 +923,8 @@ class Game:
             if (self.score // EXTRA_LIFE_SCORE) > (self.last_extra_life_score // EXTRA_LIFE_SCORE):
                 self.lives += 1
                 self.last_extra_life_score = self.score
-                # TODO: Add a special sound effect for extra life
+                self.new_life_timer = 60  # 1 second animation
+                self.sound_effects.play('power_up')
 
             # Split asteroid if large enough
             if asteroid.size >= 20:
@@ -946,6 +988,7 @@ class Game:
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
+        self.new_life_timer = 0
 
         # Clear all game objects
         self.ship = None
@@ -1031,6 +1074,10 @@ class Game:
                 # Update asteroid beat
                 self.sound_effects.update_beat(len(self.asteroids))
 
+            # Update new life animation timer
+            if self.new_life_timer > 0:
+                self.new_life_timer -= 1
+
             # Draw everything
             self.screen.fill((0, 0, 0))  # Clear screen
 
@@ -1045,8 +1092,11 @@ class Game:
                 particle.draw(self.screen)
 
             # Draw UI
-            draw_ui(self.screen, self.score, self.lives, self.level, (self.scale_x, self.scale_y),
-                   self.game_over, False, self.entering_name, self.current_name, self.high_scores)
+            draw_ui(self.screen, self.score, self.lives, self.level, 
+                   (self.scale_x, self.scale_y), self.game_over,
+                   self.show_level_text, self.entering_name, 
+                   self.current_name, self.high_scores,
+                   self.new_life_timer)
 
             pygame.display.flip()
             self.clock.tick(60)
