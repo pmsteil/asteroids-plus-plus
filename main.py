@@ -188,18 +188,26 @@ class Game:
 
                 # Handle continuous key presses
                 keys = pygame.key.get_pressed()
+                thrust = keys[pygame.K_UP]
+                rotate = 0
                 if keys[pygame.K_LEFT]:
-                    self.ship.rotate(-1)
-                if keys[pygame.K_RIGHT]:
-                    self.ship.rotate(1)
-                if keys[pygame.K_UP]:
-                    self.ship.accelerate()
+                    rotate = -1
+                elif keys[pygame.K_RIGHT]:
+                    rotate = 1
+
+                # Update ship and get thruster particles
+                if self.ship:
+                    thruster_particles = self.ship.update(thrust, rotate, self.width, self.height)
+                    if thruster_particles:
+                        self.particles.extend(thruster_particles)
+
+                # Update sound effects
+                if thrust:
                     self.sound_effects.start_thrust()
                 else:
                     self.sound_effects.stop_thrust()
 
                 # Update game objects
-                self.ship.update(self.width, self.height)  # Pass screen dimensions
                 for asteroid in self.asteroids:
                     asteroid.update(self.width, self.height)  # Pass screen dimensions
                 for bullet in self.bullets[:]:
@@ -213,7 +221,8 @@ class Game:
             # Render the scene
             self.screen.fill(BLACK)
             if self.in_game:
-                self.ship.draw(self.screen)
+                if self.ship:
+                    self.ship.draw(self.screen)
                 for asteroid in self.asteroids:
                     asteroid.draw(self.screen)
                 for bullet in self.bullets:
@@ -324,18 +333,48 @@ class Ship:
         )
         return self.pos + nose_offset
 
-    def update(self, width, height):
-        self.pos += self.velocity
+    def get_rear_position(self):
+        """Calculate the position at the rear of the ship"""
+        # Calculate the rear position (10 units down from center, scaled and rotated)
+        rad = math.radians(self.angle)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        rear_offset = pygame.Vector2(
+            10 * sin_a * self.scale_x,  # x component (opposite of nose)
+            10 * cos_a * self.scale_y   # y component (opposite of nose)
+        )
+        return self.pos + rear_offset
+
+    def update(self, thrust, rotate, width, height):
+        self.angle += rotate * 5
+        
+        # Update velocity based on thrust
+        if thrust:
+            # Use the same angle convention as bullets
+            rad = math.radians(self.angle)
+            # Thrust in opposite direction of where ship is pointing
+            thrust_dir = pygame.Vector2(math.sin(rad), -math.cos(rad))
+            self.velocity += thrust_dir * self.acceleration
+        
+        # Apply friction
         self.velocity *= self.friction
-        self.wrap(width, height)
+        
+        # Update position
+        self.pos += self.velocity
+        
+        # Wrap around screen
+        self.pos.x = self.pos.x % width
+        self.pos.y = self.pos.y % height
+        
+        # Update invulnerability
         if self.invulnerable:
             self.invulnerable_timer -= 1
             if self.invulnerable_timer <= 0:
                 self.invulnerable = False
-
+        
         # Return thruster particles if thrusting
-        if self.velocity.length() > 0.1:
-            return create_thruster_particles(self.pos, self.angle, (self.scale_x, self.scale_y))
+        if thrust:
+            return create_thruster_particles(self.get_rear_position(), self.angle, (self.scale_x, self.scale_y))
         return []
 
     def make_invulnerable(self, frames=120):  # 2 seconds at 60 FPS
@@ -356,27 +395,6 @@ class Ship:
             y = point.x * sin_a + point.y * cos_a
             transformed.append((x * self.scale_x + self.pos.x, y * self.scale_y + self.pos.y))
         pygame.draw.polygon(surface, WHITE, transformed, 1)
-
-    def accelerate(self):
-        # Accelerate in the direction the ship is pointing
-        rad = math.radians(self.angle)
-        force = pygame.Vector2(math.sin(rad), -math.cos(rad)) * self.acceleration
-        self.velocity += force
-
-    def rotate(self, direction):
-        # direction: -1 for left, +1 for right
-        self.angle += 5 * direction
-
-    def wrap(self, width, height):
-        # Wrap around screen edges
-        if self.pos.x > width:
-            self.pos.x = 0
-        elif self.pos.x < 0:
-            self.pos.x = width
-        if self.pos.y > height:
-            self.pos.y = 0
-        elif self.pos.y < 0:
-            self.pos.y = height
 
 class Asteroid:
     def __init__(self, pos, size, scale=(1, 1)):
@@ -510,18 +528,29 @@ class Particle:
 
 def create_thruster_particles(pos, angle, scale=(1, 1)):
     particles = []
-    rad = math.radians(angle)
-    base_vel = pygame.Vector2(math.sin(rad), math.cos(rad))
+    # Add 180 degrees to make thrust come out the back
+    thrust_angle = angle + 180
+    rad = math.radians(thrust_angle)
+    thrust_dir = pygame.Vector2(-math.sin(rad), -math.cos(rad))
     
     for _ in range(3):  # Create 3 particles per frame
         spread = random.uniform(-0.5, 0.5)
-        vel = base_vel.rotate(spread * 20)  # Spread particles in a 20-degree cone
-        speed = random.uniform(3, 6)
-        particle_vel = vel * speed
+        # Calculate spread angle
+        spread_rad = math.radians(spread * 20)  # 20 degree spread
+        cos_spread = math.cos(spread_rad)
+        sin_spread = math.sin(spread_rad)
         
-        # Start particles behind the ship
-        offset = base_vel * -15 * scale[0]  # Offset from ship center
-        start_pos = pygame.Vector2(pos) + offset
+        # Rotate the thrust direction by the spread angle
+        spread_dir = pygame.Vector2(
+            thrust_dir.x * cos_spread - thrust_dir.y * sin_spread,
+            thrust_dir.x * sin_spread + thrust_dir.y * cos_spread
+        )
+        
+        speed = random.uniform(3, 6)
+        particle_vel = spread_dir * speed
+        
+        # Start particles at the rear position
+        start_pos = pygame.Vector2(pos)
         
         # Orange/red color with random variation
         r = random.randint(200, 255)
