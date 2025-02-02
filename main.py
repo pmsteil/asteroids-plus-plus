@@ -335,13 +335,12 @@ class Ship:
 
     def get_rear_position(self):
         """Calculate the position at the rear of the ship"""
-        # Calculate the rear position (10 units down from center, scaled and rotated)
+        # Use same angle convention as thrust and bullets
         rad = math.radians(self.angle)
-        cos_a = math.cos(rad)
-        sin_a = math.sin(rad)
+        # Rear is in opposite direction of thrust
         rear_offset = pygame.Vector2(
-            10 * sin_a * self.scale_x,  # x component (opposite of nose)
-            10 * cos_a * self.scale_y   # y component (opposite of nose)
+            -15 * math.sin(rad) * self.scale_x,  # x component
+            15 * math.cos(rad) * self.scale_y    # y component
         )
         return self.pos + rear_offset
 
