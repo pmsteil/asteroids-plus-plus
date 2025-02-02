@@ -331,11 +331,17 @@ class SoundEffects:
                 math.sin(2.0 * math.pi * 400 * t) * 0.2
             )
             
-            # Add filtered noise
+            # High frequency components (300-500 Hz, quieter)
+            high_freq = (
+                math.sin(2.0 * math.pi * 300 * t) * 0.1 +
+                math.sin(2.0 * math.pi * 500 * t) * 0.05
+            )
+
+            # Add some noise (filtered to be more like air/exhaust)
             noise = random.uniform(-0.4, 0.4) * time_factor
             
             # Combine all components with time-based envelope
-            value = int(32767 * (base + mid + noise) * time_factor)
+            value = int(32767 * (base + mid + high_freq + noise) * time_factor)
             value = max(min(value, 32767), -32768)
             
             samples[i * 2] = value  # Left channel
@@ -679,7 +685,7 @@ def draw_ui(
 class Game:
     def __init__(self) -> None:
         pygame.init()
-        mixer.init(44100, -16, 2, 1024)
+        pygame.mixer.init(44100, -16, 2, 1024)
         
         # Get display info
         info = pygame.display.Info()
@@ -707,26 +713,31 @@ class Game:
         self.sound_effects = SoundEffects()
         
         # Game state
-        self.reset_game_state()
-
-    def reset_game_state(self) -> None:
         self.score = 0
-        self.lives = 3
         self.level = 1
+        self.lives = 3
         self.game_over = False
-        self.show_level_text = True
-        self.level_text_timer = 120
         self.entering_name = False
         self.current_name = ""
+        self.respawn_timer = 0  # Timer for respawn delay
+
+        # Game objects
+        self.ship = None
+        self.asteroids: List[Asteroid] = []
+        self.bullets: List[Bullet] = []
+        self.particles: List[Particle] = []
+
+        # Initialize game
         self.reset_ship()
-        self.asteroids = []
-        self.bullets = []
-        self.particles = []
         self.start_new_level(self.level)
 
     def reset_ship(self) -> None:
-        self.ship = Ship(Vector2(self.width / 2, self.height / 2), 0, (self.scale_x, self.scale_y))
-        self.ship.make_invulnerable()
+        """Create a new ship in the center of the screen"""
+        self.ship = Ship(
+            Vector2(self.width / 2, self.height / 2),
+            scale=(self.scale_x, self.scale_y)
+        )
+        self.ship.make_invulnerable(180)  # 3 seconds of invulnerability
 
     def handle_resize(self, new_width: int, new_height: int) -> None:
         self.width = new_width
@@ -771,7 +782,7 @@ class Game:
             return
             
         # Check ship collision with asteroids
-        if not self.ship.invulnerable:
+        if self.ship and not self.ship.invulnerable:
             for asteroid in self.asteroids[:]:  # Use slice to allow removal during iteration
                 if asteroid.check_collision_with_ship(self.ship):
                     self.lives -= 1
@@ -800,10 +811,17 @@ class Game:
                         return
                         
                     # Normal ship destruction
-                    self.reset_ship()
+                    ship_pos = self.ship.pos  # Store position before removing ship
+                    self.ship = None  # Remove the ship
+                    self.respawn_timer = 120  # 2 seconds at 60 FPS
+                    self.sound_effects.stop_thrust()  # Stop thrust sound
                     self.sound_effects.play('explosion_large')
                     self.particles.extend(
-                        create_explosion_particles(self.ship.pos, 30, (self.scale_x, self.scale_y))
+                        create_explosion_particles(
+                            ship_pos,  # Use stored position
+                            30, 
+                            (self.scale_x, self.scale_y)
+                        )
                     )
                     break
         
@@ -861,8 +879,8 @@ class Game:
         self.ship = None  # Remove the ship
         self.sound_effects.stop_thrust()  # Stop any ongoing thrust sound
         
-        # Check for high score
-        if self.high_scores.is_high_score(self.score):
+        # Check for high score only if score > 0
+        if self.score > 0 and self.high_scores.is_high_score(self.score):
             self.entering_name = True
             self.current_name = ""
         else:
@@ -893,6 +911,29 @@ class Game:
         self.sound_effects.play('fire')
         self.last_fire_time = current_time
 
+    def reset_game_state(self) -> None:
+        """Reset the game to its initial state"""
+        self.score = 0
+        self.level = 1
+        self.lives = 3
+        self.game_over = False
+        self.entering_name = False
+        self.current_name = ""
+        self.respawn_timer = 0
+        
+        # Clear all game objects
+        self.ship = None
+        self.asteroids = []
+        self.bullets = []
+        self.particles = []
+        
+        # Stop all sounds
+        self.sound_effects.stop_thrust()
+        
+        # Initialize game
+        self.reset_ship()
+        self.start_new_level(self.level)
+
     def run(self) -> None:
         running = True
         while running:
@@ -921,6 +962,13 @@ class Game:
                     self.handle_resize(event.w, event.h)
 
             if not self.game_over:
+                # Handle respawn timer
+                if self.ship is None and self.lives > 0:
+                    if self.respawn_timer > 0:
+                        self.respawn_timer -= 1
+                    else:
+                        self.reset_ship()
+
                 # Get keyboard state
                 keys = pygame.key.get_pressed()
                 thrust = keys[pygame.K_UP] or keys[pygame.K_w]
