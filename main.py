@@ -628,18 +628,51 @@ class SoundEffects:
         self.sounds['fire'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['fire'].set_volume(0.3)
         
-        # Thrust sound (low rumble)
+        # Thrust sound (rocket engine)
         duration = 1.0
         num_samples = int(duration * sample_rate)
         samples = array.array('h', [0] * (num_samples * 2))
+        
+        # Create a more complex rocket engine sound with multiple frequencies and noise
+        prev_noise = 0
         for i in range(num_samples):
             t = float(i) / sample_rate
-            value = clamp(int(max_amplitude * 0.25 * (
-                math.sin(2.0 * math.pi * 100.0 * t) +
-                0.5 * math.sin(2.0 * math.pi * 80.0 * t)
-            )))
-            samples[i * 2] = value
-            samples[i * 2 + 1] = value
+            
+            # Base rumble (40-60 Hz)
+            base_rumble = (
+                math.sin(2.0 * math.pi * 40.0 * t) * 0.4 +
+                math.sin(2.0 * math.pi * 60.0 * t) * 0.3
+            )
+            
+            # Mid frequencies (120-180 Hz) with slight frequency modulation
+            mid_freq = (
+                math.sin(2.0 * math.pi * (120.0 + math.sin(t * 2) * 10) * t) * 0.2 +
+                math.sin(2.0 * math.pi * (180.0 + math.sin(t * 3) * 15) * t) * 0.15
+            )
+            
+            # High frequency components (300-500 Hz, quieter)
+            high_freq = (
+                math.sin(2.0 * math.pi * 300.0 * t) * 0.1 +
+                math.sin(2.0 * math.pi * 500.0 * t) * 0.05
+            )
+            
+            # Add some noise (filtered to be more like air/exhaust)
+            noise = random.uniform(-0.3, 0.3)
+            # Low-pass filter the noise (simple moving average)
+            if i > 0:
+                noise = (noise + prev_noise) * 0.5
+            prev_noise = noise
+            
+            # Combine all components
+            value = (base_rumble + mid_freq + high_freq + noise) * max_amplitude * 0.3
+            
+            # Add slight stereo effect
+            left_value = clamp(int(value * (1.0 + math.sin(t * 2) * 0.1)))
+            right_value = clamp(int(value * (1.0 - math.sin(t * 2) * 0.1)))
+            
+            samples[i * 2] = left_value
+            samples[i * 2 + 1] = right_value
+            
         self.sounds['thrust'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['thrust'].set_volume(0.4)
         
