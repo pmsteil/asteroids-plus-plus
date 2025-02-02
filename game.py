@@ -18,7 +18,7 @@ ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
 DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
-EXTRA_LIFE_SCORE = 500  # Score needed for an extra life
+EXTRA_LIFE_SCORE = 10000  # Score needed for an extra life
 
 @dataclass
 class Particle:
@@ -652,16 +652,17 @@ def draw_ui(surface: Surface, score: int, lives: int, level: int, scale: Tuple[f
     GRAY = (180, 180, 180)
 
     font = pygame.font.SysFont('Arial', int(24 * scale[0]))
-    small_font = pygame.font.SysFont('Arial', int(14 * scale[0]))  # Smaller font for scores
+    small_font = pygame.font.SysFont('Arial', int(14 * scale[0]))
 
     # Draw score at top left
     score_text = font.render(f"Score: {score}", True, WHITE)
     surface.blit(score_text, (10 * scale[0], 10 * scale[1]))
 
-    # Draw level at top center
-    level_text = font.render(f"Level {level}", True, WHITE)
-    level_rect = level_text.get_rect(midtop=(surface.get_width() / 2, 10 * scale[1]))
-    surface.blit(level_text, level_rect)
+    # Only draw level at top if not showing level announcement
+    if not show_level_text:
+        level_text = font.render(f"Level {level}", True, WHITE)
+        level_rect = level_text.get_rect(midtop=(surface.get_width() / 2, 10 * scale[1]))
+        surface.blit(level_text, level_rect)
 
     # Draw lives at upper right
     lives_x = surface.get_width() - (35 * scale[0])
@@ -788,6 +789,8 @@ class Game:
         # Initialize game
         self.reset_ship()
         self.start_new_level(self.level)
+        self.show_level_text = False
+        self.level_text_timer = 0  # Add timer for level text
 
     def reset_ship(self) -> None:
         """Create a new ship in the center of the screen"""
@@ -816,22 +819,26 @@ class Game:
 
     def start_new_level(self, level_num: int) -> None:
         self.level = level_num
-        num_asteroids = 3 + (level_num - 1)
+        num_asteroids = 2 + level_num
+        self.asteroids = []
 
         for _ in range(num_asteroids):
-            # Spawn asteroids away from the ship
+            # Spawn asteroids away from the center
             while True:
-                x = random.randrange(self.width)
-                y = random.randrange(self.height)
-                if Vector2(x - self.ship.pos.x, y - self.ship.pos.y).length() > 100:
+                x = random.uniform(0, self.width)
+                y = random.uniform(0, self.height)
+                pos = Vector2(x, y)
+
+                # Check if asteroid is far enough from center
+                if (pos - Vector2(self.width / 2, self.height / 2)).length() > 200:
                     break
 
             self.asteroids.append(
-                Asteroid(Vector2(x, y), 40, (self.scale_x, self.scale_y))
+                Asteroid(pos, 30, (self.scale_x, self.scale_y))
             )
 
         self.show_level_text = True
-        self.level_text_timer = 120
+        self.level_text_timer = 120  # Show for 2 seconds (120 frames)
 
     def handle_collisions(self) -> None:
         """Handle all game collisions"""
@@ -1078,18 +1085,31 @@ class Game:
             if self.new_life_timer > 0:
                 self.new_life_timer -= 1
 
+            # Update level text timer
+            if self.level_text_timer > 0:
+                self.level_text_timer -= 1
+                if self.level_text_timer == 0:
+                    self.show_level_text = False
+
             # Draw everything
             self.screen.fill((0, 0, 0))  # Clear screen
 
             # Draw game objects
-            if self.ship and not self.game_over:
+            if self.ship:
                 self.ship.draw(self.screen)
-            for bullet in self.bullets:
-                bullet.draw(self.screen)
             for asteroid in self.asteroids:
                 asteroid.draw(self.screen)
+            for bullet in self.bullets:
+                bullet.draw(self.screen)
             for particle in self.particles:
                 particle.draw(self.screen)
+
+            # Draw level announcement in center if active
+            if self.show_level_text:
+                font = pygame.font.SysFont('Arial', int(48 * self.scale_x))
+                level_text = font.render(f"Level {self.level}", True, (255, 255, 255))
+                level_rect = level_text.get_rect(center=(self.width / 2, self.height / 2))
+                self.screen.blit(level_text, level_rect)
 
             # Draw UI
             draw_ui(self.screen, self.score, self.lives, self.level,
