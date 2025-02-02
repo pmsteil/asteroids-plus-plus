@@ -18,7 +18,7 @@ ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
 DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
-EXTRA_LIFE_SCORE = 1000  # Score needed for an extra life
+EXTRA_LIFE_SCORE = 500  # Score needed for an extra life
 
 @dataclass
 class Particle:
@@ -369,24 +369,24 @@ class SoundEffects:
 
         for i in range(num_samples):
             t = float(i) / sample_rate
-            
+
             # Rising pitch from 220Hz to 880Hz (A3 to A5)
             freq = 220 + (660 * (t / duration))
-            
+
             # Amplitude envelope: quick attack, long decay
             envelope = min(1.0, t * 10) * (1.0 - t)
-            
+
             # Main tone plus harmonics
             value = (
                 math.sin(2.0 * math.pi * freq * t) * 0.5 +  # Base frequency
                 math.sin(2.0 * math.pi * freq * 2 * t) * 0.25 +  # First harmonic
                 math.sin(2.0 * math.pi * freq * 4 * t) * 0.125  # Second harmonic
             )
-            
+
             # Apply envelope
             value = int(32767 * value * envelope)
             value = max(min(value, 32767), -32768)
-            
+
             samples[i * 2] = value
             samples[i * 2 + 1] = value
 
@@ -616,41 +616,41 @@ def create_explosion_particles(
         particles.append(Particle(Vector2(pos), velocity, color, life, life, size, scale[0], scale[1]))
     return particles
 
-def draw_ship_icon(surface: Surface, pos: Union[Vector2, Tuple[float, float]], 
+def draw_ship_icon(surface: Surface, pos: Union[Vector2, Tuple[float, float]],
                   scale: Tuple[float, float] = (1, 1),
                   color: Tuple[int, int, int] = (255, 255, 255)) -> None:
     """Draw a small ship icon for the lives display"""
     # Convert tuple to Vector2 if needed
     if isinstance(pos, tuple):
         pos = Vector2(pos)
-        
+
     # Define ship points (smaller version of ship)
     points = [
         Vector2(0, -8),  # Nose
         Vector2(5, 5),   # Right
         Vector2(-5, 5)   # Left
     ]
-    
+
     # Scale and transform points
     screen_points = []
     for p in points:
         screen_points.append(
             (p.x * scale[0] + pos.x, p.y * scale[1] + pos.y)
         )
-    
+
     # Draw the ship outline
     pygame.draw.polygon(surface, color, screen_points, 1)
 
 def draw_ui(surface: Surface, score: int, lives: int, level: int, scale: Tuple[float, float],
-            game_over: bool = False, show_level_text: bool = False, 
-            entering_name: bool = False, current_name: str = "", 
+            game_over: bool = False, show_level_text: bool = False,
+            entering_name: bool = False, current_name: str = "",
             high_scores: Optional[HighScores] = None,
             new_life_timer: int = 0) -> None:
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     YELLOW = (255, 255, 0)
     GRAY = (180, 180, 180)
-    
+
     font = pygame.font.SysFont('Arial', int(24 * scale[0]))
     small_font = pygame.font.SysFont('Arial', int(14 * scale[0]))  # Smaller font for scores
 
@@ -666,17 +666,17 @@ def draw_ui(surface: Surface, score: int, lives: int, level: int, scale: Tuple[f
     # Draw lives at upper right
     lives_x = surface.get_width() - (35 * scale[0])
     lives_y = 20 * scale[1]
-    
+
     for i in range(lives):
         # If this is the newest life and animation is active, pulse it
         if i == lives - 1 and new_life_timer > 0:
-            # Use the same pulse logic as ship invulnerability
-            pulse = (math.sin(new_life_timer * math.pi / 15) + 1) / 2  # Faster pulse
+            # Use the same pulse logic as ship invulnerability but slower
+            pulse = (math.sin(new_life_timer * math.pi / 30) + 1) / 2  # Slower pulse
             pulse = 0.4 + (pulse * 0.6)  # Range 0.4 to 1.0
             color = (int(40 * pulse), int(180 * pulse), int(40 * pulse))
         else:
             color = WHITE
-            
+
         draw_ship_icon(surface, (lives_x - i * 30 * scale[0], lives_y), scale=scale, color=color)
 
     # If showing level announcement
@@ -923,7 +923,7 @@ class Game:
             if (self.score // EXTRA_LIFE_SCORE) > (self.last_extra_life_score // EXTRA_LIFE_SCORE):
                 self.lives += 1
                 self.last_extra_life_score = self.score
-                self.new_life_timer = 60  # 1 second animation
+                self.new_life_timer = 120  # 2 seconds animation
                 self.sound_effects.play('power_up')
 
             # Split asteroid if large enough
@@ -1092,9 +1092,9 @@ class Game:
                 particle.draw(self.screen)
 
             # Draw UI
-            draw_ui(self.screen, self.score, self.lives, self.level, 
+            draw_ui(self.screen, self.score, self.lives, self.level,
                    (self.scale_x, self.scale_y), self.game_over,
-                   self.show_level_text, self.entering_name, 
+                   self.show_level_text, self.entering_name,
                    self.current_name, self.high_scores,
                    self.new_life_timer)
 
