@@ -984,6 +984,11 @@ class Game:
             # Add points
             self.score += points
 
+            # Check if level is complete (no more asteroids)
+            if len(self.asteroids) == 0:
+                self.level += 1
+                self.start_new_level(self.level)
+
     def handle_game_over(self) -> None:
         """Handle the game over state"""
         if not self.game_over:
