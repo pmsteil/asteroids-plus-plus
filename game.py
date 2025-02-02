@@ -51,37 +51,51 @@ class Ship:
 
     def get_nose_position(self) -> Vector2:
         """Calculate the position of the ship's nose for bullet spawning"""
+        # Calculate the nose position (15 units up from center, scaled and rotated)
         rad = math.radians(self.angle)
         nose_offset = Vector2(
-            -15 * math.sin(rad) * self.scale_x,
-            -15 * math.cos(rad) * self.scale_y
+            15 * math.sin(rad) * self.scale_x,  # x component
+            -15 * math.cos(rad) * self.scale_y   # y component
         )
         return self.pos + nose_offset
 
     def get_rear_position(self) -> Vector2:
-        """Calculate the position at the rear of the ship for thruster particles"""
+        """Calculate the position at the rear of the ship for thrust particles"""
+        # Calculate the rear position (opposite of nose position)
         rad = math.radians(self.angle)
         rear_offset = Vector2(
-            -15 * math.sin(rad) * self.scale_x,
-            15 * math.cos(rad) * self.scale_y
+            -15 * math.sin(rad) * self.scale_x,  # x component (opposite of nose)
+            15 * math.cos(rad) * self.scale_y    # y component (opposite of nose)
         )
         return self.pos + rear_offset
 
-    def update(self, thrust: bool, rotate: float, width: int, height: int) -> List[Particle]:
+    def update(self, thrust: bool, rotate: float, width: float, height: float) -> List[Particle]:
+        """Update ship position and rotation"""
+        # Update rotation
         self.angle += rotate * 5
-        
+        self.angle %= 360
+
+        # Update velocity based on thrust
         if thrust:
+            # Calculate thrust direction based on ship's angle
             rad = math.radians(self.angle)
-            thrust_dir = Vector2(math.sin(rad), -math.cos(rad))
+            thrust_dir = Vector2(
+                math.sin(rad),   # x component
+                -math.cos(rad)   # y component
+            )
             self.velocity += thrust_dir * self.acceleration
-        
+
+        # Apply friction to slow down
         self.velocity *= self.friction
+
+        # Update position
         self.pos += self.velocity
         
         # Wrap around screen
-        self.pos.x = self.pos.x % width
-        self.pos.y = self.pos.y % height
-        
+        self.pos.x %= width
+        self.pos.y %= height
+
+        # Update invulnerability
         if self.invulnerable:
             self.invulnerable_timer -= 1
             if self.invulnerable_timer <= 0:
@@ -661,11 +675,13 @@ class Game:
                         self.last_fire_time = 0
                     current_time = pygame.time.get_ticks()
                     if current_time - self.last_fire_time > 250:  # Fire rate limit
+                        bullet_pos = self.ship.get_nose_position()
+                        rad = math.radians(self.ship.angle)
+                        bullet_vel = Vector2(math.sin(rad), -math.cos(rad)) * 10
                         self.bullets.append(
-                            Bullet(self.ship.get_nose_position(),
-                                  self.ship.angle,
-                                  (self.scale_x, self.scale_y))
+                            Bullet(bullet_pos, self.ship.angle, (self.scale_x, self.scale_y))
                         )
+                        self.bullets[-1].velocity = bullet_vel
                         self.sound_effects.play('fire')
                         self.last_fire_time = current_time
                 
