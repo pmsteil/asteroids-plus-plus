@@ -1,11 +1,15 @@
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 import pygame
-from pygame import Vector2, Surface, mixer
-import math
+from pygame import mixer
+from pygame.surface import Surface
+import sys
 import random
+import math
 import json
 import os
+import array
 from dataclasses import dataclass
+from pygame.math import Vector2
 
 # Constants
 SCREEN_WIDTH = 800
@@ -13,6 +17,7 @@ SCREEN_HEIGHT = 600
 ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
 DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
+HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
 
 @dataclass
 class Particle:
@@ -68,6 +73,26 @@ class Ship:
             15 * math.cos(rad) * self.scale_y    # y component (opposite of nose)
         )
         return self.pos + rear_offset
+
+    def get_transformed_points(self) -> List[Vector2]:
+        """Get the ship's points transformed by position, rotation and scale"""
+        rad = math.radians(self.angle)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        
+        transformed = []
+        for point in self.points:
+            # Scale and rotate the point
+            x = point.x * self.scale_x
+            y = point.y * self.scale_y
+            rotated_x = x * cos_a - y * sin_a
+            rotated_y = x * sin_a + y * cos_a
+            # Translate to ship's position
+            transformed.append(Vector2(
+                rotated_x + self.pos.x,
+                rotated_y + self.pos.y
+            ))
+        return transformed
 
     def update(self, thrust: bool, rotate: float, width: float, height: float) -> List[Particle]:
         """Update ship position and rotation"""
@@ -165,34 +190,32 @@ class Asteroid:
         ) * speed
         self.points: List[Vector2] = self.generate_points()
         self.scale_x, self.scale_y = scale
-        self.collision_points: Optional[List[Tuple[float, float]]] = None
+        self.collision_points: Optional[List[Vector2]] = None
         self.update_collision_points()
 
     def generate_points(self) -> List[Vector2]:
-        num_points = random.randint(8, 12)
+        """Generate the asteroid's shape points"""
         points = []
+        num_points = random.randint(8, 12)
         for i in range(num_points):
             angle = (i / num_points) * 2 * math.pi
-            distance = self.size * random.uniform(0.8, 1.2)
+            # Vary the radius to make the asteroid more irregular
+            radius = self.size * random.uniform(0.8, 1.2)
             points.append(Vector2(
-                math.cos(angle) * distance,
-                math.sin(angle) * distance
+                radius * math.cos(angle),
+                radius * math.sin(angle)
             ))
         return points
 
     def update_collision_points(self) -> None:
-        rad = 0  # Asteroids don't rotate yet
-        cos_a = math.cos(rad)
-        sin_a = math.sin(rad)
-        
-        self.collision_points = []
+        """Update the scaled and transformed points for collision detection"""
+        transformed = []
         for point in self.points:
-            x = point.x * cos_a - point.y * sin_a
-            y = point.x * sin_a + point.y * cos_a
-            self.collision_points.append((
-                x * self.scale_x + self.pos.x,
-                y * self.scale_y + self.pos.y
+            transformed.append(Vector2(
+                point.x * self.scale_x + self.pos.x,
+                point.y * self.scale_y + self.pos.y
             ))
+        self.collision_points = transformed
 
     def update(self, width: int, height: int) -> None:
         self.pos += self.velocity
@@ -204,27 +227,80 @@ class Asteroid:
         self.pos.y = self.pos.y % height
 
     def draw(self, surface: Surface) -> None:
+        """Draw the asteroid"""
+        # Draw the asteroid shape
         if self.collision_points:
-            pygame.draw.polygon(surface, (255, 255, 255), self.collision_points, 2)
+            points = [(p.x, p.y) for p in self.collision_points]
+            pygame.draw.polygon(surface, (255, 255, 255), points, 2)
 
-    def point_in_asteroid(self, point: Tuple[float, float]) -> bool:
-        if not self.collision_points:
+    def point_in_asteroid(self, point: Vector2) -> bool:
+        """Check if a point is inside the asteroid using ray casting"""
+        # Get the transformed points for collision detection
+        points = self.collision_points
+        if not points:
             return False
             
-        x, y = point
+        # Ray casting algorithm
         inside = False
-        j = len(self.collision_points) - 1
+        j = len(points) - 1
         
-        for i in range(len(self.collision_points)):
-            xi, yi = self.collision_points[i]
-            xj, yj = self.collision_points[j]
-            
-            if ((yi > y) != (yj > y) and
-                x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+        for i in range(len(points)):
+            if (((points[i].y > point.y) != (points[j].y > point.y)) and
+                (point.x < (points[j].x - points[i].x) * (point.y - points[i].y) /
+                          (points[j].y - points[i].y) + points[i].x)):
                 inside = not inside
             j = i
             
         return inside
+
+    def line_segments_intersect(self, p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2) -> bool:
+        """Check if line segments (p1,p2) and (p3,p4) intersect"""
+        def ccw(A: Vector2, B: Vector2, C: Vector2) -> bool:
+            """Returns True if points are arranged counter-clockwise"""
+            return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
+            
+        # Check if line segments intersect using CCW tests
+        return ccw(p1, p3, p4) != ccw(p2, p3, p4) and ccw(p1, p2, p3) != ccw(p1, p2, p4)
+
+    def check_collision_with_ship(self, ship: Ship) -> bool:
+        """Check for collision between asteroid and ship"""
+        ship_points = ship.get_transformed_points()
+        asteroid_points = self.collision_points
+        
+        if not asteroid_points:
+            return False
+            
+        # First check if any ship point is inside the asteroid
+        for point in ship_points:
+            if self.point_in_asteroid(point):
+                return True
+                
+        # Then check if any asteroid point is inside the ship polygon
+        for point in asteroid_points:
+            inside = False
+            j = len(ship_points) - 1
+            for i in range(len(ship_points)):
+                if (((ship_points[i].y > point.y) != (ship_points[j].y > point.y)) and
+                    (point.x < (ship_points[j].x - ship_points[i].x) * (point.y - ship_points[i].y) /
+                              (ship_points[j].y - ship_points[i].y) + ship_points[i].x)):
+                    inside = not inside
+                j = i
+            if inside:
+                return True
+                
+        # Finally check for line segment intersections
+        for i in range(len(ship_points)):
+            p1 = ship_points[i]
+            p2 = ship_points[(i + 1) % len(ship_points)]
+            
+            for j in range(len(asteroid_points)):
+                p3 = asteroid_points[j]
+                p4 = asteroid_points[(j + 1) % len(asteroid_points)]
+                
+                if self.line_segments_intersect(p1, p2, p3, p4):
+                    return True
+                    
+        return False
 
 class SoundEffects:
     def __init__(self) -> None:
@@ -233,6 +309,39 @@ class SoundEffects:
         self.thrust_playing: bool = False
         self.beat_tempo: float = 1.0
         self.last_beat_time: int = 0
+
+    def create_final_explosion(self) -> mixer.Sound:
+        """Create a longer, more dramatic explosion sound for game over"""
+        sample_rate = 44100
+        duration = 3.0  # 3 seconds
+        num_samples = int(duration * sample_rate)
+        samples = array.array('h', [0] * (num_samples * 2))
+        
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            time_factor = 1.0 - (t / duration)  # Linear decay
+            
+            # Base explosion (50-150 Hz, sweeping down)
+            base_freq = 150 - 100 * (t / duration)
+            base = math.sin(2.0 * math.pi * base_freq * t) * 0.6
+            
+            # Mid frequencies (200-400 Hz)
+            mid = (
+                math.sin(2.0 * math.pi * 200 * t) * 0.3 +
+                math.sin(2.0 * math.pi * 400 * t) * 0.2
+            )
+            
+            # Add filtered noise
+            noise = random.uniform(-0.4, 0.4) * time_factor
+            
+            # Combine all components with time-based envelope
+            value = int(32767 * (base + mid + noise) * time_factor)
+            value = max(min(value, 32767), -32768)
+            
+            samples[i * 2] = value  # Left channel
+            samples[i * 2 + 1] = value  # Right channel
+            
+        return mixer.Sound(buffer=samples)
 
     def _create_sounds(self) -> None:
         import array
@@ -330,6 +439,9 @@ class SoundEffects:
                 
             self.sounds[f'explosion_{size}'] = mixer.Sound(buffer=samples)
 
+        # Final explosion sound
+        self.sounds['final_explosion'] = self.create_final_explosion()
+
     def play(self, sound_name: str) -> None:
         if sound_name in self.sounds:
             self.sounds[sound_name].play()
@@ -357,6 +469,56 @@ class SoundEffects:
         for sound in self.sounds.values():
             sound.stop()
         self.thrust_playing = False
+
+class HighScores:
+    def __init__(self) -> None:
+        self.scores: List[Dict[str, Union[str, int]]] = []
+        self.load_scores()
+
+    def load_scores(self) -> None:
+        """Load high scores from file"""
+        try:
+            with open(HIGH_SCORES_FILE, 'r') as f:
+                data = json.load(f)
+                self.scores = data.get('scores', [])
+                if not self.scores:  # If scores is empty or not found
+                    # Initialize with existing scores
+                    self.scores = [
+                        {"name": "patiman", "score": 4100},
+                        {"name": "Patiman", "score": 1800},
+                        {"name": "Patrick", "score": 1200},
+                        {"name": "patiman", "score": 1200},
+                        {"name": "patiman", "score": 800}
+                    ]
+                    self.save_scores()
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Initialize with existing scores
+            self.scores = [
+                {"name": "patiman", "score": 4100},
+                {"name": "Patiman", "score": 1800},
+                {"name": "Patrick", "score": 1200},
+                {"name": "patiman", "score": 1200},
+                {"name": "patiman", "score": 800}
+            ]
+            self.save_scores()
+
+    def save_scores(self) -> None:
+        """Save high scores to file"""
+        with open(HIGH_SCORES_FILE, 'w') as f:
+            json.dump({'scores': self.scores}, f)
+
+    def is_high_score(self, score: int) -> bool:
+        """Check if score qualifies for high scores list"""
+        return len(self.scores) < 10 or score > self.scores[-1]['score']
+
+    def add_score(self, name: str, score: int) -> None:
+        """Add a new high score"""
+        self.scores.append({'name': name[:10], 'score': score})  # Limit name to 10 chars
+        # Sort scores by score value, highest first
+        self.scores.sort(key=lambda x: x['score'], reverse=True)
+        # Keep only top 10
+        self.scores = self.scores[:10]
+        self.save_scores()
 
 def create_thruster_particles(pos: Vector2, angle: float, scale: Tuple[float, float] = (1, 1)) -> List[Particle]:
     particles = []
@@ -513,6 +675,7 @@ class Game:
         self.scale_y = self.height / DEFAULT_HEIGHT
         self.ship_collision_radius = 15 * self.scale_x
         self.clock = pygame.time.Clock()
+        self.high_scores = HighScores()
         self.sound_effects = SoundEffects()
         
         # Game state
@@ -575,63 +738,107 @@ class Game:
         self.level_text_timer = 120
 
     def handle_collisions(self) -> None:
-        # Bullet-asteroid collisions
-        for bullet in self.bullets[:]:
-            for asteroid in self.asteroids[:]:
-                if asteroid.point_in_asteroid((bullet.pos.x, bullet.pos.y)):
+        """Handle all game collisions"""
+        if self.game_over:
+            return
+            
+        # Check ship collision with asteroids
+        if not self.ship.invulnerable:
+            for asteroid in self.asteroids[:]:  # Use slice to allow removal during iteration
+                if asteroid.check_collision_with_ship(self.ship):
+                    self.lives -= 1
+                    
+                    # Final explosion for game over
+                    if self.lives <= 0:
+                        # Create a massive explosion
+                        self.particles.extend(
+                            create_explosion_particles(
+                                self.ship.pos, 
+                                num_particles=50,  # More particles
+                                scale=(self.scale_x, self.scale_y),
+                                size_range=(2, 6),  # Bigger particles
+                                speed_range=(3, 8),  # Faster particles
+                                colors=[  # More dramatic colors
+                                    (255, 200, 50, 255),  # Bright yellow
+                                    (255, 150, 0, 255),   # Orange
+                                    (255, 50, 0, 255),    # Red
+                                    (255, 0, 0, 255)      # Deep red
+                                ]
+                            )
+                        )
+                        # Play the long explosion sound
+                        self.sound_effects.play('final_explosion')
+                        self.handle_game_over()
+                        return
+                        
+                    # Normal ship destruction
+                    self.reset_ship()
+                    self.sound_effects.play('explosion_large')
+                    self.particles.extend(
+                        create_explosion_particles(self.ship.pos, 30, (self.scale_x, self.scale_y))
+                    )
+                    break
+        
+        # Check bullet collisions with asteroids
+        for bullet in self.bullets[:]:  # Use slice to allow removal during iteration
+            for asteroid in self.asteroids[:]:  # Use slice to allow removal during iteration
+                if asteroid.point_in_asteroid(bullet.pos):
+                    # Remove bullet
                     if bullet in self.bullets:
                         self.bullets.remove(bullet)
-                    if asteroid in self.asteroids:
-                        self.asteroids.remove(asteroid)
-                        
-                        # Add explosion particles
-                        self.particles.extend(
-                            create_explosion_particles(asteroid.pos, 20,
-                                                    (self.scale_x, self.scale_y))
-                        )
-                        
-                        # Play explosion sound based on size
-                        if asteroid.size >= 30:
-                            self.sound_effects.play('explosion_large')
-                            self.score += 20
-                        elif asteroid.size >= 15:
-                            self.sound_effects.play('explosion_medium')
-                            self.score += 50
-                        else:
-                            self.sound_effects.play('explosion_small')
-                            self.score += 100
-                        
-                        # Split asteroid if large enough
-                        if asteroid.size >= 20:
-                            for _ in range(2):
-                                new_asteroid = Asteroid(
-                                    Vector2(asteroid.pos),
-                                    asteroid.size / 2,
-                                    (self.scale_x, self.scale_y)
-                                )
-                                self.asteroids.append(new_asteroid)
-        
-        # Ship-asteroid collisions
-        if self.ship and not self.ship.invulnerable:
-            ship_pos = (self.ship.pos.x, self.ship.pos.y)
-            for asteroid in self.asteroids:
-                if asteroid.point_in_asteroid(ship_pos):
-                    self.lives -= 1
-                    self.sound_effects.play('explosion_medium')
-                    self.particles.extend(
-                        create_explosion_particles(self.ship.pos, 30,
-                                                (self.scale_x, self.scale_y))
-                    )
-                    if self.lives > 0:
-                        self.reset_ship()
-                    else:
-                        self.ship = None
-                        self.handle_game_over()
+                    
+                    # Split or remove asteroid
+                    self.handle_asteroid_destruction(asteroid)
                     break
 
+    def handle_asteroid_destruction(self, asteroid: Asteroid) -> None:
+        """Handle the destruction of an asteroid including splitting and scoring"""
+        if asteroid in self.asteroids:
+            self.asteroids.remove(asteroid)
+            
+            # Add explosion particles
+            self.particles.extend(
+                create_explosion_particles(asteroid.pos, 20, (self.scale_x, self.scale_y))
+            )
+            
+            # Score based on asteroid size
+            if asteroid.size >= 30:
+                self.sound_effects.play('explosion_large')
+                self.score += 20
+            elif asteroid.size >= 15:
+                self.sound_effects.play('explosion_medium')
+                self.score += 50
+            else:
+                self.sound_effects.play('explosion_small')
+                self.score += 100
+            
+            # Split asteroid if large enough
+            if asteroid.size >= 20:
+                for _ in range(2):
+                    new_asteroid = Asteroid(
+                        Vector2(asteroid.pos),
+                        asteroid.size / 2,
+                        (self.scale_x, self.scale_y)
+                    )
+                    self.asteroids.append(new_asteroid)
+
+            # Check if level is complete
+            if len(self.asteroids) == 0:
+                self.level += 1
+                self.start_new_level(self.level)
+
     def handle_game_over(self) -> None:
+        """Handle the game over state"""
         self.game_over = True
-        self.sound_effects.stop_all_sounds()
+        self.ship = None  # Remove the ship
+        self.sound_effects.stop_thrust()  # Stop any ongoing thrust sound
+        
+        # Check for high score
+        if self.high_scores.is_high_score(self.score):
+            self.entering_name = True
+            self.current_name = ""
+        else:
+            self.entering_name = False
 
     def run(self) -> None:
         running = True
