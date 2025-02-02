@@ -572,81 +572,109 @@ def create_explosion_particles(
         particles.append(Particle(Vector2(pos), velocity, color, life, life, size, scale[0], scale[1]))
     return particles
 
-def draw_ship_icon(surface: Surface, pos: Vector2, scale: Tuple[float, float] = (1, 1)) -> None:
+def draw_ship_icon(surface: Surface, pos: Union[Vector2, Tuple[float, float]], scale: Tuple[float, float] = (1, 1)) -> None:
+    """Draw a small ship icon for the lives display"""
+    # Convert tuple to Vector2 if needed
+    if isinstance(pos, tuple):
+        pos = Vector2(pos)
+        
+    # Define ship points (smaller version of ship)
     points = [
-        Vector2(0, -10),
-        Vector2(7, 7),
-        Vector2(-7, 7)
+        Vector2(0, -8),  # Nose
+        Vector2(5, 5),   # Right
+        Vector2(-5, 5)   # Left
     ]
-    transformed_points = [
-        (p.x * scale[0] + pos.x, p.y * scale[1] + pos.y)
-        for p in points
-    ]
-    pygame.draw.polygon(surface, (255, 255, 255), transformed_points, 2)
+    
+    # Scale and transform points
+    screen_points = []
+    for p in points:
+        screen_points.append(
+            (p.x * scale[0] + pos.x, p.y * scale[1] + pos.y)
+        )
+    
+    # Draw the ship outline
+    pygame.draw.polygon(surface, (255, 255, 255), screen_points, 1)
 
 def draw_ui(
     surface: Surface,
     score: int,
     lives: int,
-    game_over: bool,
-    level: int = 1,
+    level: int,
+    scale: Tuple[float, float],
+    game_over: bool = False,
     show_level_text: bool = False,
-    high_scores: Optional[List[Tuple[str, int]]] = None,
     entering_name: bool = False,
     current_name: str = "",
-    scale: Tuple[float, float] = (1, 1)
+    high_scores: Optional[HighScores] = None
 ) -> None:
-    font = pygame.font.SysFont('Arial', 24)
+    WHITE = (255, 255, 255)
+    RED = (255, 0, 0)
+    YELLOW = (255, 255, 0)
     
-    # Score at top left
-    score_text = font.render(f"Score: {score}", True, (255, 255, 255))
-    surface.blit(score_text, (10, 10))
-    
-    # Level at top center
-    level_text = font.render(f"Level {level}", True, (255, 255, 255))
-    level_rect = level_text.get_rect(midtop=(surface.get_width() / 2, 10))
+    font = pygame.font.SysFont('Arial', int(24 * scale[0]))
+    # Draw score at top left
+    score_text = font.render(f"Score: {score}", True, WHITE)
+    surface.blit(score_text, (10 * scale[0], 10 * scale[1]))
+
+    # Draw level at top center
+    level_text = font.render(f"Level {level}", True, WHITE)
+    level_rect = level_text.get_rect(midtop=(surface.get_width() / 2, 10 * scale[1]))
     surface.blit(level_text, level_rect)
-    
-    # Lives icons at upper right
+
+    # Draw lives icons at upper right
     for i in range(lives):
         icon_x = surface.get_width() - (i + 1) * 30 * scale[0]
         icon_y = 10 * scale[1]
-        draw_ship_icon(surface, Vector2(icon_x, icon_y + 10 * scale[1]), scale)
-    
-    # Level announcement
+        draw_ship_icon(surface, (icon_x, icon_y + 10 * scale[1]), scale=scale)
+
+    # If showing level announcement
     if show_level_text:
-        level_font = pygame.font.SysFont('Arial', 48)
-        announce_text = level_font.render(f'Level {level}', True, (255, 255, 255))
+        level_font = pygame.font.SysFont('Arial', int(48 * scale[0]))
+        announce_text = level_font.render(f'Level {level}', True, WHITE)
         text_rect = announce_text.get_rect(center=(surface.get_width() / 2, surface.get_height() / 2))
         surface.blit(announce_text, text_rect)
-    
-    # Game over screen
+
+    # If game over, display messages and high scores
     if game_over:
         y_offset = surface.get_height() / 4
-        
-        game_font = pygame.font.SysFont('Arial', 48)
-        game_over_text = game_font.render('GAME OVER', True, (255, 0, 0))
+
+        # Game Over text
+        game_font = pygame.font.SysFont('Arial', int(48 * scale[0]))
+        game_over_text = game_font.render('GAME OVER', True, RED)
         text_rect = game_over_text.get_rect(center=(surface.get_width() / 2, y_offset))
         surface.blit(game_over_text, text_rect)
-        y_offset += 50
-        
+        y_offset += 50 * scale[1]
+
         if entering_name:
-            name_text = font.render(f"Enter name: {current_name}_", True, (255, 255, 255))
-            text_rect = name_text.get_rect(center=(surface.get_width() / 2, y_offset))
-            surface.blit(name_text, text_rect)
-            y_offset += 50
-        
-        if high_scores:
-            title_text = font.render("High Scores:", True, (255, 255, 255))
-            text_rect = title_text.get_rect(center=(surface.get_width() / 2, y_offset))
-            surface.blit(title_text, text_rect)
-            y_offset += 30
-            
-            for name, score in high_scores[:5]:
-                score_text = font.render(f"{name}: {score}", True, (255, 255, 255))
-                text_rect = score_text.get_rect(center=(surface.get_width() / 2, y_offset))
-                surface.blit(score_text, text_rect)
-                y_offset += 30
+            name_prompt = font.render('Enter your name:', True, YELLOW)
+            name_rect = name_prompt.get_rect(center=(surface.get_width() / 2, y_offset))
+            surface.blit(name_prompt, name_rect)
+            y_offset += 30 * scale[1]
+
+            name_text = font.render(current_name + "_", True, WHITE)
+            name_rect = name_text.get_rect(center=(surface.get_width() / 2, y_offset))
+            surface.blit(name_text, name_rect)
+            y_offset += 50 * scale[1]
+        else:
+            # Instructions
+            restart_text = font.render('Press R to Restart or Q to Quit', True, WHITE)
+            restart_rect = restart_text.get_rect(center=(surface.get_width() / 2, y_offset))
+            surface.blit(restart_text, restart_rect)
+            y_offset += 50 * scale[1]
+
+        if high_scores and high_scores.scores:
+            # High Scores title
+            title_text = game_font.render('High Scores', True, YELLOW)
+            title_rect = title_text.get_rect(center=(surface.get_width() / 2, y_offset))
+            surface.blit(title_text, title_rect)
+            y_offset += 50 * scale[1]
+
+            # Display high scores
+            for i, score_data in enumerate(high_scores.scores):
+                score_text = font.render(f"{i+1}. {score_data['name']:<10} {score_data['score']:>6}", True, WHITE)
+                score_rect = score_text.get_rect(center=(surface.get_width() / 2, y_offset))
+                surface.blit(score_text, score_rect)
+                y_offset += 30 * scale[1]
 
 class Game:
     def __init__(self) -> None:
@@ -840,6 +868,31 @@ class Game:
         else:
             self.entering_name = False
 
+    def fire_bullet(self) -> None:
+        """Fire a bullet from the ship's nose"""
+        if not self.ship or len(self.bullets) >= 5:  # Limit number of bullets
+            return
+            
+        # Only fire if enough time has passed (rate limiting)
+        current_time = pygame.time.get_ticks()
+        if not hasattr(self, 'last_fire_time'):
+            self.last_fire_time = 0
+        if current_time - self.last_fire_time < 250:  # 250ms = 4 shots per second
+            return
+            
+        # Create new bullet
+        self.bullets.append(
+            Bullet(
+                self.ship.get_nose_position(),
+                self.ship.angle,
+                scale=(self.scale_x, self.scale_y)
+            )
+        )
+        
+        # Play sound and update fire time
+        self.sound_effects.play('fire')
+        self.last_fire_time = current_time
+
     def run(self) -> None:
         running = True
         while running:
@@ -847,78 +900,68 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key == pygame.K_SPACE and not self.game_over:
+                        self.fire_bullet()
+                    elif event.key == pygame.K_r and self.game_over and not self.entering_name:
+                        self.reset_game_state()
+                    elif event.key == pygame.K_q and self.game_over and not self.entering_name:
+                        running = False
+                    elif self.entering_name:
+                        if event.key == pygame.K_RETURN and self.current_name:
+                            self.high_scores.add_score(self.current_name, self.score)
+                            self.entering_name = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.current_name = self.current_name[:-1]
+                        elif len(self.current_name) < 10 and event.unicode.isalnum():
+                            self.current_name += event.unicode
                 elif event.type == pygame.VIDEORESIZE:
-                    self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
                     self.handle_resize(event.w, event.h)
-                elif event.type == pygame.KEYDOWN and self.game_over and self.entering_name:
-                    if event.key == pygame.K_RETURN and self.current_name:
-                        self.high_scores.add_score(self.current_name, self.score)
-                        self.entering_name = False
-                    elif event.key == pygame.K_BACKSPACE:
-                        self.current_name = self.current_name[:-1]
-                    elif len(self.current_name) < 10 and event.unicode.isalnum():
-                        self.current_name += event.unicode
+
+            if not self.game_over:
+                # Get keyboard state
+                keys = pygame.key.get_pressed()
+                thrust = keys[pygame.K_UP] or keys[pygame.K_w]
+                rotate_left = keys[pygame.K_LEFT] or keys[pygame.K_a]
+                rotate_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
+
+                # Update game objects
+                if self.ship:
+                    self.ship.update(thrust, rotate_right - rotate_left, self.width, self.height)
+                    if thrust:
+                        self.sound_effects.start_thrust()
+                        self.particles.extend(create_thruster_particles(self.ship.get_rear_position(), 
+                                           self.ship.angle, (self.scale_x, self.scale_y)))
+                    else:
+                        self.sound_effects.stop_thrust()
+
+                for bullet in self.bullets[:]:
+                    bullet.update(self.width, self.height)
+                    bullet.lifetime -= 1
+                    if bullet.lifetime <= 0:
+                        self.bullets.remove(bullet)
+
+                for asteroid in self.asteroids:
+                    asteroid.update(self.width, self.height)
+
+                for particle in self.particles[:]:
+                    particle.update()
+                    if particle.life <= 0:
+                        self.particles.remove(particle)
+
+                # Handle collisions
+                self.handle_collisions()
+
+                # Update asteroid beat
+                self.sound_effects.update_beat(len(self.asteroids))
+
+            # Draw everything
+            self.screen.fill((0, 0, 0))  # Clear screen
             
-            # Get input
-            keys = pygame.key.get_pressed()
-            if not self.game_over and self.ship:
-                # Rotation
-                rotate = 0
-                if keys[pygame.K_LEFT]:
-                    rotate = -1
-                elif keys[pygame.K_RIGHT]:
-                    rotate = 1
-                
-                # Thrust
-                thrust = keys[pygame.K_UP]
-                if thrust:
-                    self.sound_effects.start_thrust()
-                else:
-                    self.sound_effects.stop_thrust()
-                
-                # Fire
-                if keys[pygame.K_SPACE]:
-                    if not hasattr(self, 'last_fire_time'):
-                        self.last_fire_time = 0
-                    current_time = pygame.time.get_ticks()
-                    if current_time - self.last_fire_time > 250:  # Fire rate limit
-                        bullet_pos = self.ship.get_nose_position()
-                        rad = math.radians(self.ship.angle)
-                        bullet_vel = Vector2(math.sin(rad), -math.cos(rad)) * 10
-                        self.bullets.append(
-                            Bullet(bullet_pos, self.ship.angle, (self.scale_x, self.scale_y))
-                        )
-                        self.bullets[-1].velocity = bullet_vel
-                        self.sound_effects.play('fire')
-                        self.last_fire_time = current_time
-                
-                # Update ship and create particles
-                new_particles = self.ship.update(thrust, rotate, self.width, self.height)
-                self.particles.extend(new_particles)
-            
-            # Update game objects
-            self.bullets = [b for b in self.bullets if b.update(self.width, self.height)]
-            for asteroid in self.asteroids:
-                asteroid.update(self.width, self.height)
-            self.particles = [p for p in self.particles if p.update()]
-            
-            # Handle collisions
-            self.handle_collisions()
-            
-            # Check for level completion
-            if not self.game_over and not self.asteroids:
-                self.start_new_level(self.level + 1)
-            
-            # Update level text timer
-            if self.show_level_text:
-                self.level_text_timer -= 1
-                if self.level_text_timer <= 0:
-                    self.show_level_text = False
-            
-            # Draw
-            self.screen.fill((0, 0, 0))
-            
-            if self.ship:
+            # Draw game objects
+            if self.ship and not self.game_over:
                 self.ship.draw(self.screen)
             for bullet in self.bullets:
                 bullet.draw(self.screen)
@@ -926,17 +969,16 @@ class Game:
                 asteroid.draw(self.screen)
             for particle in self.particles:
                 particle.draw(self.screen)
-            
+
             # Draw UI
-            draw_ui(self.screen, self.score, self.lives, self.game_over,
-                   self.level, self.show_level_text, None,
-                   self.entering_name, self.current_name,
-                   (self.scale_x, self.scale_y))
-            
+            draw_ui(self.screen, self.score, self.lives, self.level, (self.scale_x, self.scale_y),
+                   self.game_over, False, self.entering_name, self.current_name, self.high_scores)
+
             pygame.display.flip()
             self.clock.tick(60)
-        
+
         pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
     game = Game()
