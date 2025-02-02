@@ -44,36 +44,62 @@ class Particle:
                          (int(self.pos.x), int(self.pos.y)), size)
 
 class Ship:
-    def __init__(self, pos: Vector2, angle: float = 0, scale: Tuple[float, float] = (1, 1)):
-        self.pos: Vector2 = Vector2(pos)
-        self.angle: float = angle
-        self.velocity: Vector2 = Vector2(0, 0)
-        self.acceleration: float = 0.5
-        self.friction: float = 0.98
-        self.points: List[Vector2] = [Vector2(0, -15), Vector2(10, 10), Vector2(-10, 10)]
-        self.invulnerable: bool = False
-        self.invulnerable_timer: int = 0
+    def __init__(self, pos: Vector2, scale: Tuple[float, float] = (1, 1)) -> None:
+        """Initialize the ship"""
+        self.pos = Vector2(pos)
+        self.velocity = Vector2(0, 0)
+        self.angle = 0  # 0 is pointing up, increases clockwise
         self.scale_x, self.scale_y = scale
+        self.invulnerable = True
+        self.invulnerable_timer = 120  # 2 seconds at 60 FPS
+        
+        # Define ship shape relative to center
+        self.points = [
+            Vector2(0, -10),  # Nose
+            Vector2(6, 10),   # Bottom right
+            Vector2(0, 7),    # Bottom middle
+            Vector2(-6, 10)   # Bottom left
+        ]
 
     def get_nose_position(self) -> Vector2:
-        """Calculate the position of the ship's nose for bullet spawning"""
-        # Calculate the nose position (15 units up from center, scaled and rotated)
+        """Get the position of the ship's nose in world coordinates"""
+        # Convert angle to radians
         rad = math.radians(self.angle)
-        nose_offset = Vector2(
-            15 * math.sin(rad) * self.scale_x,  # x component
-            -15 * math.cos(rad) * self.scale_y   # y component
+        
+        # Get the nose point (first point in self.points)
+        nose = self.points[0]
+        
+        # Rotate the nose point
+        rotated_x = nose.x * math.cos(rad) - nose.y * math.sin(rad)
+        rotated_y = nose.x * math.sin(rad) + nose.y * math.cos(rad)
+        
+        # Scale and translate to world position
+        world_pos = Vector2(
+            self.pos.x + rotated_x * self.scale_x,
+            self.pos.y + rotated_y * self.scale_y
         )
-        return self.pos + nose_offset
+        
+        return world_pos
 
     def get_rear_position(self) -> Vector2:
-        """Calculate the position at the rear of the ship for thrust particles"""
-        # Calculate the rear position (opposite of nose position)
+        """Get the position of the ship's rear center in world coordinates"""
+        # Convert angle to radians
         rad = math.radians(self.angle)
-        rear_offset = Vector2(
-            -15 * math.sin(rad) * self.scale_x,  # x component (opposite of nose)
-            15 * math.cos(rad) * self.scale_y    # y component (opposite of nose)
+        
+        # Get the rear center point (third point in self.points)
+        rear = self.points[2]
+        
+        # Rotate the rear point
+        rotated_x = rear.x * math.cos(rad) - rear.y * math.sin(rad)
+        rotated_y = rear.x * math.sin(rad) + rear.y * math.cos(rad)
+        
+        # Scale and translate to world position
+        world_pos = Vector2(
+            self.pos.x + rotated_x * self.scale_x,
+            self.pos.y + rotated_y * self.scale_y
         )
-        return self.pos + rear_offset
+        
+        return world_pos
 
     def get_transformed_points(self) -> List[Vector2]:
         """Get the ship's points transformed by position, rotation and scale"""
@@ -109,10 +135,10 @@ class Ship:
                 math.sin(rad),   # x component
                 -math.cos(rad)   # y component
             )
-            self.velocity += thrust_dir * self.acceleration
+            self.velocity += thrust_dir * 0.5
 
         # Apply friction to slow down
-        self.velocity *= self.friction
+        self.velocity *= 0.98
 
         # Update position
         self.pos += self.velocity
@@ -166,11 +192,11 @@ class Ship:
         pygame.draw.polygon(surface, color, transformed_points, 2)
 
 class Bullet:
-    def __init__(self, ship_pos: Vector2, ship_angle: float, scale: Tuple[float, float] = (1, 1)):
-        self.pos: Vector2 = Vector2(ship_pos)
-        rad = math.radians(ship_angle)
-        self.velocity: Vector2 = Vector2(math.sin(rad), -math.cos(rad)) * 10
-        self.lifetime: int = 60
+    def __init__(self, pos: Vector2, velocity: Vector2, scale: Tuple[float, float]) -> None:
+        """Initialize a bullet"""
+        self.pos = Vector2(pos)
+        self.velocity = Vector2(velocity)
+        self.lifetime = 60
         self.scale_x, self.scale_y = scale
 
     def update(self, width: int, height: int) -> bool:
@@ -713,6 +739,7 @@ def draw_ui(surface: Surface, score: int, lives: int, level: int, scale: Tuple[f
             restart_text = font.render('Press R to Restart or Q to Quit', True, WHITE)
             restart_rect = restart_text.get_rect(center=(surface.get_width() / 2, y_offset))
             surface.blit(restart_text, restart_rect)
+
             y_offset += 50 * scale[1]
 
         if high_scores and high_scores.scores:
@@ -775,6 +802,8 @@ class Game:
         self.level = 1
         self.lives = 3
         self.game_over = False
+        self.paused = False
+        self.bullet_streams = 1  # Number of bullet streams (1-4)
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
@@ -950,41 +979,50 @@ class Game:
 
     def handle_game_over(self) -> None:
         """Handle the game over state"""
-        self.game_over = True
-        self.ship = None  # Remove the ship
-        self.sound_effects.stop_thrust()  # Stop any ongoing thrust sound
+        if not self.game_over:
+            self.game_over = True
+            self.ship = None  # Remove the ship
+            self.sound_effects.stop_thrust()  # Stop any ongoing thrust sound
 
-        # Check for high score only if score > 0
-        if self.score > 0 and self.high_scores.is_high_score(self.score):
-            self.entering_name = True
-            self.current_name = ""
-        else:
-            self.entering_name = False
+            # Check for high score only if score > 0
+            if self.score > 0 and self.high_scores.is_high_score(self.score):
+                self.entering_name = True
+                self.current_name = ""
+            else:
+                self.entering_name = False
 
     def fire_bullet(self) -> None:
-        """Fire a bullet from the ship's nose"""
-        if not self.ship or len(self.bullets) >= 5:  # Limit number of bullets
+        """Fire bullet(s) from the ship's nose"""
+        if not self.ship:
             return
 
-        # Only fire if enough time has passed (rate limiting)
-        current_time = pygame.time.get_ticks()
-        if not hasattr(self, 'last_fire_time'):
-            self.last_fire_time = 0
-        if current_time - self.last_fire_time < 250:  # 250ms = 4 shots per second
-            return
+        nose_pos = self.ship.get_nose_position()
+        base_angle = self.ship.angle
 
-        # Create new bullet
-        self.bullets.append(
-            Bullet(
-                self.ship.get_nose_position(),
-                self.ship.angle,
-                scale=(self.scale_x, self.scale_y)
+        # Calculate angles based on number of streams
+        if self.bullet_streams == 1:
+            angles = [0]  # Single bullet straight ahead
+        elif self.bullet_streams == 2:
+            angles = [-5, 5]  # Slightly spread
+        elif self.bullet_streams == 3:
+            angles = [-10, 0, 10]  # Wider spread
+        else:  # 4 streams
+            angles = [-15, -5, 5, 15]  # Widest spread
+
+        # Create bullets at calculated angles
+        for angle_offset in angles:
+            # Calculate bullet direction based on ship's angle plus offset
+            bullet_angle = base_angle + angle_offset
+            rad = math.radians(bullet_angle)
+            
+            # Direction is opposite to where the ship is pointing
+            direction = Vector2(math.sin(rad), -math.cos(rad))
+            
+            # All bullets start at the nose position
+            self.bullets.append(
+                Bullet(nose_pos, direction * 10, (self.scale_x, self.scale_y))
             )
-        )
-
-        # Play sound and update fire time
-        self.sound_effects.play('fire')
-        self.last_fire_time = current_time
+            self.sound_effects.play('fire')
 
     def reset_game_state(self) -> None:
         """Reset the game to its initial state"""
@@ -992,6 +1030,8 @@ class Game:
         self.level = 1
         self.lives = 3
         self.game_over = False
+        self.paused = False
+        self.bullet_streams = 1  # Number of bullet streams (1-4)
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
@@ -1020,12 +1060,21 @@ class Game:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
-                    elif event.key == pygame.K_SPACE and not self.game_over:
+                    elif event.key == pygame.K_SPACE and not self.game_over and not self.paused:
                         self.fire_bullet()
                     elif event.key == pygame.K_r and self.game_over and not self.entering_name:
                         self.reset_game_state()
-                    elif event.key == pygame.K_q and self.game_over and not self.entering_name:
+                    elif event.key == pygame.K_q:
                         running = False
+                    elif event.key == pygame.K_p and not self.game_over:
+                        self.paused = not self.paused
+                        if self.paused:
+                            self.sound_effects.stop_thrust()  # Stop thrust sound when pausing
+                            pygame.mixer.pause()  # Pause all sound channels
+                        else:
+                            pygame.mixer.unpause()  # Unpause all sound channels
+                    elif event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4] and not self.game_over:
+                        self.bullet_streams = int(event.unicode)
                     elif self.entering_name:
                         if event.key == pygame.K_RETURN and self.current_name:
                             self.high_scores.add_score(self.current_name, self.score, self.level)
@@ -1037,23 +1086,27 @@ class Game:
                 elif event.type == pygame.VIDEORESIZE:
                     self.handle_resize(event.w, event.h)
 
-            if not self.game_over:
-                # Handle respawn timer
-                if self.ship is None and self.lives > 0:
-                    if self.respawn_timer > 0:
-                        self.respawn_timer -= 1
-                    else:
-                        self.reset_ship()
+            # Get keyboard state
+            keys = pygame.key.get_pressed()
 
-                # Get keyboard state
-                keys = pygame.key.get_pressed()
-                thrust = keys[pygame.K_UP] or keys[pygame.K_w]
-                rotate_left = keys[pygame.K_LEFT] or keys[pygame.K_a]
-                rotate_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
+            # Handle respawn timer
+            if not self.game_over and not self.paused and self.ship is None and self.lives > 0:
+                if self.respawn_timer > 0:
+                    self.respawn_timer -= 1
+                else:
+                    self.reset_ship()
 
-                # Update game objects
+            # Update game objects if not game over or paused
+            if not self.game_over and not self.paused:
+                # Handle ship movement
                 if self.ship:
+                    thrust = keys[pygame.K_UP] or keys[pygame.K_w]
+                    rotate_left = keys[pygame.K_LEFT] or keys[pygame.K_a]
+                    rotate_right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
+
                     self.ship.update(thrust, rotate_right - rotate_left, self.width, self.height)
+
+                    # Handle thrust sound and particles
                     if thrust:
                         self.sound_effects.start_thrust()
                         self.particles.extend(create_thruster_particles(self.ship.get_rear_position(),
@@ -1061,15 +1114,18 @@ class Game:
                     else:
                         self.sound_effects.stop_thrust()
 
+                # Update bullets
                 for bullet in self.bullets[:]:
                     bullet.update(self.width, self.height)
                     bullet.lifetime -= 1
                     if bullet.lifetime <= 0:
                         self.bullets.remove(bullet)
 
+                # Update asteroids
                 for asteroid in self.asteroids:
                     asteroid.update(self.width, self.height)
 
+                # Update particles
                 for particle in self.particles[:]:
                     particle.update()
                     if particle.life <= 0:
@@ -1078,7 +1134,7 @@ class Game:
                 # Handle collisions
                 self.handle_collisions()
 
-                # Update asteroid beat
+                # Update sound effects beat
                 self.sound_effects.update_beat(len(self.asteroids))
 
             # Update new life animation timer
@@ -1110,6 +1166,13 @@ class Game:
                 level_text = font.render(f"Level {self.level}", True, (255, 255, 255))
                 level_rect = level_text.get_rect(center=(self.width / 2, self.height / 2))
                 self.screen.blit(level_text, level_rect)
+
+            # Draw PAUSED text if game is paused
+            if self.paused:
+                font = pygame.font.SysFont('Arial', int(48 * self.scale_x))
+                pause_text = font.render("PAUSED", True, (255, 255, 0))
+                pause_rect = pause_text.get_rect(center=(self.width / 2, self.height / 2))
+                self.screen.blit(pause_text, pause_rect)
 
             # Draw UI
             draw_ui(self.screen, self.score, self.lives, self.level,
