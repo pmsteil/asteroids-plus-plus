@@ -18,6 +18,7 @@ ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
 DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
+EXTRA_LIFE_SCORE = 1000  # Score needed for an extra life
 
 @dataclass
 class Particle:
@@ -130,15 +131,14 @@ class Ship:
             return create_thruster_particles(self.get_rear_position(), self.angle, (self.scale_x, self.scale_y))
         return []
 
-    def make_invulnerable(self, frames: int = 120) -> None:
+    def make_invulnerable(self, frames: int = 240) -> None:
+        """Make ship invulnerable for the specified number of frames"""
         self.invulnerable = True
         self.invulnerable_timer = frames
 
     def draw(self, surface: Surface) -> None:
-        if self.invulnerable and self.invulnerable_timer % 2:
-            return
-
-        # Transform points based on position, angle, and scale
+        """Draw the ship"""
+        # Transform points
         rad = math.radians(self.angle)
         cos_a = math.cos(rad)
         sin_a = math.sin(rad)
@@ -152,7 +152,18 @@ class Ship:
                 y * self.scale_y + self.pos.y
             ))
 
-        pygame.draw.polygon(surface, (255, 255, 255), transformed_points, 2)
+        if self.invulnerable:
+            # Create smooth pulse using sine wave
+            # 30 frames for one complete pulse (2 seconds)
+            pulse = (math.sin(self.invulnerable_timer * math.pi / 30) + 1) / 2  # Range 0 to 1
+            # Keep minimum visibility at 40% and max at 100%
+            pulse = 0.4 + (pulse * 0.6)  # Range 0.4 to 1.0
+            # Create muted green that pulses but stays visible
+            color = (int(40 * pulse), int(180 * pulse), int(40 * pulse))
+        else:
+            color = (255, 255, 255)  # Normal white color
+
+        pygame.draw.polygon(surface, color, transformed_points, 2)
 
 class Bullet:
     def __init__(self, ship_pos: Vector2, ship_angle: float, scale: Tuple[float, float] = (1, 1)):
@@ -713,19 +724,19 @@ class Game:
         # Game objects
         self.scale_x = self.width / DEFAULT_WIDTH
         self.scale_y = self.height / DEFAULT_HEIGHT
-        self.ship_collision_radius = 15 * self.scale_x
         self.clock = pygame.time.Clock()
         self.high_scores = HighScores()
         self.sound_effects = SoundEffects()
 
         # Game state
         self.score = 0
+        self.last_extra_life_score = 0  # Track when we last gave an extra life
         self.level = 1
         self.lives = 3
         self.game_over = False
         self.entering_name = False
         self.current_name = ""
-        self.respawn_timer = 0  # Timer for respawn delay
+        self.respawn_timer = 0
 
         # Game objects
         self.ship = None
@@ -743,14 +754,13 @@ class Game:
             Vector2(self.width / 2, self.height / 2),
             scale=(self.scale_x, self.scale_y)
         )
-        self.ship.make_invulnerable(180)  # 3 seconds of invulnerability
+        self.ship.make_invulnerable(240)  # 4 seconds of invulnerability
 
     def handle_resize(self, new_width: int, new_height: int) -> None:
         self.width = new_width
         self.height = new_height
         self.scale_x = self.width / DEFAULT_WIDTH
         self.scale_y = self.height / DEFAULT_HEIGHT
-        self.ship_collision_radius = 15 * self.scale_x
 
         # Update existing objects with new scale
         if self.ship:
@@ -854,30 +864,40 @@ class Game:
             )
 
             # Score based on asteroid size
+            points = 0
             if asteroid.size >= 30:
                 self.sound_effects.play('explosion_large')
-                self.score += 20
-            elif asteroid.size >= 15:
+                points = 100
+            elif asteroid.size >= 20:
                 self.sound_effects.play('explosion_medium')
-                self.score += 50
+                points = 150
             else:
                 self.sound_effects.play('explosion_small')
-                self.score += 100
+                points = 200
+
+            # Add points
+            self.score += points
+
+            # Check for extra life bonus
+            if (self.score // EXTRA_LIFE_SCORE) > (self.last_extra_life_score // EXTRA_LIFE_SCORE):
+                self.lives += 1
+                self.last_extra_life_score = self.score
+                # TODO: Add a special sound effect for extra life
 
             # Split asteroid if large enough
             if asteroid.size >= 20:
                 for _ in range(2):
                     new_asteroid = Asteroid(
                         Vector2(asteroid.pos),
-                        asteroid.size / 2,
+                        asteroid.size * 0.6,
                         (self.scale_x, self.scale_y)
                     )
                     self.asteroids.append(new_asteroid)
 
-            # Check if level is complete
-            if len(self.asteroids) == 0:
-                self.level += 1
-                self.start_new_level(self.level)
+        # Check if level is complete
+        if len(self.asteroids) == 0:
+            self.level += 1
+            self.start_new_level(self.level)
 
     def handle_game_over(self) -> None:
         """Handle the game over state"""
