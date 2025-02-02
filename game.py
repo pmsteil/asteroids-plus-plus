@@ -847,27 +847,31 @@ class Game:
             particle.scale_x, particle.scale_y = self.scale_x, self.scale_y
 
     def start_new_level(self, level_num: int) -> None:
+        """Start a new level with the given number"""
         self.level = level_num
-        num_asteroids = 2 + level_num
-        self.asteroids = []
-
-        for _ in range(num_asteroids):
-            # Spawn asteroids away from the center
-            while True:
-                x = random.uniform(0, self.width)
-                y = random.uniform(0, self.height)
-                pos = Vector2(x, y)
-
-                # Check if asteroid is far enough from center
-                if (pos - Vector2(self.width / 2, self.height / 2)).length() > 200:
-                    break
-
-            self.asteroids.append(
-                Asteroid(pos, 30, (self.scale_x, self.scale_y))
-            )
-
         self.show_level_text = True
-        self.level_text_timer = 120  # Show for 2 seconds (120 frames)
+        self.level_text_timer = 120  # 2 seconds at 60 FPS
+
+        # Clear any remaining objects
+        self.bullets.clear()
+        self.asteroids.clear()
+        self.particles.clear()
+
+        # Create new asteroids
+        num_asteroids = 2 + self.level
+        for _ in range(num_asteroids):
+            # Random position along the edge of the screen
+            if random.random() < 0.5:
+                x = random.choice([0, self.width])
+                y = random.random() * self.height
+            else:
+                x = random.random() * self.width
+                y = random.choice([0, self.height])
+            
+            # Create large asteroid
+            self.asteroids.append(
+                Asteroid(Vector2(x, y), 40, (self.scale_x, self.scale_y))
+            )
 
     def handle_collisions(self) -> None:
         """Handle all game collisions"""
@@ -940,42 +944,31 @@ class Game:
                 create_explosion_particles(asteroid.pos, 20, (self.scale_x, self.scale_y))
             )
 
-            # Score based on asteroid size
-            points = 0
-            if asteroid.size >= 30:
+            # Split asteroid if large enough
+            if asteroid.size >= 40:  # Large asteroid
                 self.sound_effects.play('explosion_large')
+                # Split into two medium asteroids
+                for _ in range(2):
+                    new_size = 25  # Fixed medium size
+                    self.asteroids.append(
+                        Asteroid(Vector2(asteroid.pos), new_size, (self.scale_x, self.scale_y))
+                    )
                 points = 100
-            elif asteroid.size >= 20:
+            elif asteroid.size >= 25:  # Medium asteroid
                 self.sound_effects.play('explosion_medium')
+                # Split into two small asteroids
+                for _ in range(2):
+                    new_size = 15  # Fixed small size
+                    self.asteroids.append(
+                        Asteroid(Vector2(asteroid.pos), new_size, (self.scale_x, self.scale_y))
+                    )
                 points = 150
-            else:
+            else:  # Small asteroid
                 self.sound_effects.play('explosion_small')
                 points = 200
 
             # Add points
             self.score += points
-
-            # Check for extra life bonus
-            if (self.score // EXTRA_LIFE_SCORE) > (self.last_extra_life_score // EXTRA_LIFE_SCORE):
-                self.lives += 1
-                self.last_extra_life_score = self.score
-                self.new_life_timer = 120  # 2 seconds animation
-                self.sound_effects.play('power_up')
-
-            # Split asteroid if large enough
-            if asteroid.size >= 20:
-                for _ in range(2):
-                    new_asteroid = Asteroid(
-                        Vector2(asteroid.pos),
-                        asteroid.size * 0.6,
-                        (self.scale_x, self.scale_y)
-                    )
-                    self.asteroids.append(new_asteroid)
-
-        # Check if level is complete
-        if len(self.asteroids) == 0:
-            self.level += 1
-            self.start_new_level(self.level)
 
     def handle_game_over(self) -> None:
         """Handle the game over state"""
@@ -1065,7 +1058,13 @@ class Game:
                     elif event.key == pygame.K_r and self.game_over and not self.entering_name:
                         self.reset_game_state()
                     elif event.key == pygame.K_q:
-                        running = False
+                        if self.game_over and not self.entering_name:
+                            # Quit the game if we're at game over screen
+                            running = False
+                        elif not self.game_over:
+                            # Force game over if we're playing
+                            self.handle_game_over()
+
                     elif event.key == pygame.K_p and not self.game_over:
                         self.paused = not self.paused
                         if self.paused:
