@@ -19,9 +19,9 @@ DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
 EXTRA_LIFE_SCORE = 10000  # Score needed for an extra life
-STARTING_ASTEROIDS = 5  # Number of asteroids at level 1
-ASTEROIDS_LEVEL_INCREASE = 10  # Percentage increase in asteroids per level
-STARTING_GUNS = 2  # Number of guns to start with (1-4)
+STARTING_ASTEROIDS = 25  # Number of asteroids at level 1
+ASTEROIDS_LEVEL_INCREASE = 25  # Percentage increase in asteroids per level
+STARTING_GUNS = 4  # Number of guns to start with (1-4)
 ASTEROID_SIZES = {
     'LARGE': 40,
     'MEDIUM': 25,
