@@ -26,38 +26,38 @@ class Game:
     def __init__(self):
         pygame.init()
         pygame.mixer.init(44100, -16, 2, 1024)
-        
+
         # Get the display info
         info = pygame.display.Info()
         self.max_width = info.current_w
         self.max_height = info.current_h
-        
+
         # Set initial window size to 80% of screen size while maintaining aspect ratio
         target_width = int(self.max_width * 0.8)
         target_height = int(target_width / ASPECT_RATIO)
         if target_height > self.max_height * 0.8:
             target_height = int(self.max_height * 0.8)
             target_width = int(target_height * ASPECT_RATIO)
-            
+
         self.width = target_width
         self.height = target_height
-        
+
         # Create resizable window
         self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
         pygame.display.set_caption("Asteroids")
-        
+
         # Scale factor for game objects (relative to default size)
         self.scale_x = self.width / DEFAULT_WIDTH
         self.scale_y = self.height / DEFAULT_HEIGHT
-        
+
         # Approximate collision radius for the ship (scaled)
         self.ship_collision_radius = 15 * self.scale_x
-        
+
         self.clock = pygame.time.Clock()
         self.high_scores = HighScores()
-        self.reset_game_state()
         self.sound_effects = SoundEffects()
-    
+        self.reset_game_state()
+
     def reset_game_state(self):
         """Initialize or reset all game state variables"""
         self.ship = self.reset_ship()
@@ -74,7 +74,7 @@ class Game:
         self.level_start_time = pygame.time.get_ticks()
         self.show_level_text = True
         self.start_new_level(self.level)
-    
+
     def handle_resize(self, new_width, new_height):
         """Handle window resize event"""
         # Maintain aspect ratio
@@ -83,36 +83,36 @@ class Game:
             new_width = int(new_height * ASPECT_RATIO)
         else:
             new_height = target_height
-            
+
         self.width = new_width
         self.height = new_height
         self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
-        
+
         # Update scale factors
         self.scale_x = self.width / DEFAULT_WIDTH
         self.scale_y = self.height / DEFAULT_HEIGHT
         self.ship_collision_radius = 15 * self.scale_x
-        
+
         # Scale existing game objects
         if self.ship:
             self.ship.pos.x = (self.ship.pos.x / self.scale_x) * self.scale_x
             self.ship.pos.y = (self.ship.pos.y / self.scale_y) * self.scale_y
-        
+
         for asteroid in self.asteroids:
             asteroid.pos.x = (asteroid.pos.x / self.scale_x) * self.scale_x
             asteroid.pos.y = (asteroid.pos.y / self.scale_y) * self.scale_y
             asteroid.size = asteroid.original_size * self.scale_x
-        
+
         for bullet in self.bullets:
             bullet.pos.x = (bullet.pos.x / self.scale_x) * self.scale_x
             bullet.pos.y = (bullet.pos.y / self.scale_y) * self.scale_y
-    
+
     def reset_ship(self):
         """Create a new ship in the center of the screen"""
         ship = Ship((self.width / 2, self.height / 2), scale=(self.scale_x, self.scale_y))
         ship.make_invulnerable()
         return ship
-    
+
     def start_new_level(self, level_num):
         """Initialize a new level"""
         self.asteroids = []
@@ -120,7 +120,7 @@ class Game:
         num_asteroids = math.ceil(5 * (1 + (level_num - 1) * 0.1))
         # Asteroids get slightly faster each level
         base_speed = 1 + (level_num - 1) * 0.1
-        
+
         for _ in range(num_asteroids):
             # Spawn asteroids away from the ship
             while True:
@@ -131,7 +131,7 @@ class Game:
             new_asteroid = Asteroid(pos, size, scale=(self.scale_x, self.scale_y))
             new_asteroid.velocity *= base_speed
             self.asteroids.append(new_asteroid)
-        
+
         self.level_start_time = pygame.time.get_ticks()
         self.show_level_text = True
 
@@ -150,10 +150,10 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                
+
                 elif event.type == pygame.VIDEORESIZE:
                     self.handle_resize(event.w, event.h)
-                
+
                 elif event.type == pygame.KEYDOWN:
                     if self.game_over:
                         if self.entering_name:
@@ -218,15 +218,15 @@ class Game:
                     asteroid.draw(self.screen)
                 for bullet in self.bullets:
                     bullet.draw(self.screen)
-            
+
             for particle in self.particles:
                 particle.draw(self.screen)
-            
-            draw_ui(self.screen, self.score, self.lives, self.game_over, 
-                   self.level, self.show_level_text, self.high_scores if self.game_over else None, 
-                   self.entering_name, self.current_name, 
+
+            draw_ui(self.screen, self.score, self.lives, self.game_over,
+                   self.level, self.show_level_text, self.high_scores if self.game_over else None,
+                   self.entering_name, self.current_name,
                    scale=(self.scale_x, self.scale_y))
-            
+
             pygame.display.flip()
 
         pygame.quit()
@@ -247,13 +247,20 @@ class Game:
                     except ValueError:
                         pass
                     self.score += 100
-                    
+
+                    # Create explosion particles based on asteroid size
                     if asteroid.size > 30 * self.scale_x:
                         self.sound_effects.play('big_explosion')
+                        self.particles.extend(create_explosion_particles(asteroid.pos, 30, (self.scale_x, self.scale_y), 
+                                                                      (2, 4), (3, 7)))
                     elif asteroid.size > 15 * self.scale_x:
                         self.sound_effects.play('medium_explosion')
+                        self.particles.extend(create_explosion_particles(asteroid.pos, 20, (self.scale_x, self.scale_y), 
+                                                                      (1.5, 3), (2.5, 6)))
                     else:
                         self.sound_effects.play('small_explosion')
+                        self.particles.extend(create_explosion_particles(asteroid.pos, 15, (self.scale_x, self.scale_y), 
+                                                                      (1, 2), (2, 5)))
                     
                     if asteroid.size > 15 * self.scale_x:
                         for _ in range(2):
@@ -268,25 +275,29 @@ class Game:
             for asteroid in self.asteroids:
                 if asteroid.point_in_asteroid(self.ship.pos):
                     self.lives -= 1
-                    
+
                     # Create explosion particles
-                    self.particles.extend(create_explosion_particles(self.ship.pos, scale=(self.scale_x, self.scale_y)))
-                    self.particles.extend(create_explosion_particles(self.ship.pos, 30, scale=(self.scale_x, self.scale_y)))
+                    self.particles.extend(create_explosion_particles(self.ship.pos, 30, (self.scale_x, self.scale_y)))
                     life_icon_pos = (self.width - self.lives * 30 * self.scale_x - 30 * self.scale_x, 20 * self.scale_y)
-                    self.particles.extend(create_explosion_particles(life_icon_pos, 10, scale=(self.scale_x, self.scale_y)))
+                    self.particles.extend(create_explosion_particles(life_icon_pos, 10, (self.scale_x, self.scale_y)))
                     self.sound_effects.play('ship_explosion')
-                    
+
                     if self.lives > 0:
                         self.ship = self.reset_ship()
                         self.ship.invulnerable = True
-                        self.ship.invulnerable_timer = 90
+                        self.ship.invulnerable_timer = 120
                     else:
-                        self.in_game = False
-                        self.game_over = True
-                        if self.high_scores.is_high_score(self.score):
-                            self.entering_name = True
-                            self.current_name = ""
+                        self.handle_game_over()
                     break
+
+    def handle_game_over(self):
+        """Handle transition to game over state"""
+        self.in_game = False
+        self.game_over = True
+        self.sound_effects.stop_all_sounds()
+        if self.high_scores.is_high_score(self.score):
+            self.entering_name = True
+            self.current_name = ""
 
 class Ship:
     def __init__(self, pos, angle=0, scale=(1, 1)):
@@ -322,6 +333,11 @@ class Ship:
             if self.invulnerable_timer <= 0:
                 self.invulnerable = False
 
+        # Return thruster particles if thrusting
+        if self.velocity.length() > 0.1:
+            return create_thruster_particles(self.pos, self.angle, (self.scale_x, self.scale_y))
+        return []
+
     def make_invulnerable(self, frames=120):  # 2 seconds at 60 FPS
         self.invulnerable = True
         self.invulnerable_timer = frames
@@ -329,7 +345,7 @@ class Ship:
     def draw(self, surface):
         if self.invulnerable and pygame.time.get_ticks() % 200 < 100:
             return  # Flash when invulnerable
-        
+
         # Transform points
         rad = math.radians(self.angle)
         cos_a = math.cos(rad)
@@ -378,7 +394,7 @@ class Asteroid:
 
     def update_collision_points(self):
         """Update the scaled and transformed points for collision detection"""
-        self.collision_points = [(x * self.scale_x + self.pos.x, y * self.scale_y + self.pos.y) 
+        self.collision_points = [(x * self.scale_x + self.pos.x, y * self.scale_y + self.pos.y)
                                for x, y in self.points]
 
     def generate_points(self):
@@ -417,18 +433,18 @@ class Asteroid:
         """Check if a point is inside the asteroid using ray casting algorithm"""
         x, y = point
         inside = False
-        
+
         # Ray casting algorithm
         j = len(self.collision_points) - 1
         for i in range(len(self.collision_points)):
             if ((self.collision_points[i][1] > y) != (self.collision_points[j][1] > y) and
-                x < (self.collision_points[j][0] - self.collision_points[i][0]) * 
+                x < (self.collision_points[j][0] - self.collision_points[i][0]) *
                     (y - self.collision_points[i][1]) /
                     (self.collision_points[j][1] - self.collision_points[i][1]) +
                     self.collision_points[i][0]):
                 inside = not inside
             j = i
-            
+
         return inside
 
 class Bullet:
@@ -461,25 +477,77 @@ class Bullet:
         pygame.draw.circle(surface, RED, (int(self.pos.x), int(self.pos.y)), int(radius))
 
 class Particle:
-    def __init__(self, pos, velocity, lifetime=30, scale=(1, 1)):
+    def __init__(self, pos, velocity, color, life, size, scale=(1, 1)):
         self.pos = pygame.Vector2(pos)
         self.velocity = pygame.Vector2(velocity)
-        self.lifetime = lifetime
-        self.original_lifetime = lifetime
+        self.color = color
+        self.life = life
+        self.max_life = life
+        self.size = size
         self.scale_x, self.scale_y = scale
 
     def update(self):
         self.pos += self.velocity
-        self.lifetime -= 1
-        # Slow down the particle
-        self.velocity *= 0.95
-        return self.lifetime > 0
+        self.life -= 1
+        # Fade out the particle
+        alpha = int(255 * (self.life / self.max_life))
+        self.color = (*self.color[:3], alpha)
+        return self.life > 0
 
     def draw(self, surface):
-        # Fade out as lifetime decreases
-        alpha = int((self.lifetime / self.original_lifetime) * 255)
-        color = (255, min(255, 128 + alpha), 0, alpha)
-        pygame.draw.circle(surface, color, (int(self.pos.x), int(self.pos.y)), 1)
+        # Scale the size based on remaining life
+        current_size = self.size * (self.life / self.max_life)
+        scaled_size = int(current_size * self.scale_x)
+        if scaled_size < 1:
+            scaled_size = 1
+        
+        # Create a surface for the particle with alpha channel
+        particle_surface = pygame.Surface((scaled_size * 2, scaled_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(particle_surface, self.color, (scaled_size, scaled_size), scaled_size)
+        
+        # Draw the particle
+        surface.blit(particle_surface, (self.pos.x - scaled_size, self.pos.y - scaled_size))
+
+def create_thruster_particles(pos, angle, scale=(1, 1)):
+    particles = []
+    rad = math.radians(angle)
+    base_vel = pygame.Vector2(math.sin(rad), math.cos(rad))
+    
+    for _ in range(3):  # Create 3 particles per frame
+        spread = random.uniform(-0.5, 0.5)
+        vel = base_vel.rotate(spread * 20)  # Spread particles in a 20-degree cone
+        speed = random.uniform(3, 6)
+        particle_vel = vel * speed
+        
+        # Start particles behind the ship
+        offset = base_vel * -15 * scale[0]  # Offset from ship center
+        start_pos = pygame.Vector2(pos) + offset
+        
+        # Orange/red color with random variation
+        r = random.randint(200, 255)
+        g = random.randint(100, 150)
+        b = random.randint(0, 50)
+        color = (r, g, b, 255)
+        
+        life = random.randint(10, 20)
+        size = random.uniform(1, 3)
+        
+        particles.append(Particle(start_pos, particle_vel, color, life, size, scale))
+    
+    return particles
+
+def create_explosion_particles(pos, num_particles=20, scale=(1, 1), size_range=(1, 3), speed_range=(2, 5), 
+                             colors=[(255, 200, 50, 255), (255, 100, 0, 255), (255, 50, 0, 255)]):
+    particles = []
+    for _ in range(num_particles):
+        angle = random.uniform(0, math.pi * 2)
+        speed = random.uniform(*speed_range)
+        velocity = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
+        color = random.choice(colors)
+        size = random.uniform(*size_range)
+        life = random.randint(20, 40)
+        particles.append(Particle(pos, velocity, color, life, size, scale))
+    return particles
 
 def draw_ship_icon(surface, pos, scale=(1, 1)):
     # Draw a small ship icon (triangle) at the given position
@@ -487,20 +555,11 @@ def draw_ship_icon(surface, pos, scale=(1, 1)):
     transformed = [(p.x * scale[0] + pos[0], p.y * scale[1] + pos[1]) for p in points]
     pygame.draw.polygon(surface, WHITE, transformed, 0)
 
-def create_explosion_particles(pos, count=20, scale=(1, 1)):
-    particles = []
-    for _ in range(count):
-        angle = random.uniform(0, 2 * math.pi)
-        speed = random.uniform(2, 5)
-        velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
-        particles.append(Particle(pos, velocity, scale=scale))
-    return particles
-
 class HighScores:
     def __init__(self):
         self.scores = []
         self.load_scores()
-    
+
     def load_scores(self):
         if HIGH_SCORES_FILE.exists():
             try:
@@ -511,14 +570,14 @@ class HighScores:
                 self.scores = []
         else:
             self.scores = []
-    
+
     def save_scores(self):
         with open(HIGH_SCORES_FILE, 'w') as f:
             json.dump({'scores': self.scores}, f)
-    
+
     def is_high_score(self, score):
         return len(self.scores) < 10 or score > self.scores[-1]['score']
-    
+
     def add_score(self, name, score):
         self.scores.append({'name': name[:10], 'score': score})  # Limit name to 10 chars
         # Sort scores by score value, highest first
@@ -554,7 +613,7 @@ def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False, hi
     # If game over, display messages and high scores
     if game_over:
         y_offset = surface.get_height() / 4
-        
+
         # Game Over text
         game_font = pygame.font.SysFont('Arial', 48)
         game_over_text = game_font.render('GAME OVER', True, RED)
@@ -567,7 +626,7 @@ def draw_ui(surface, score, lives, game_over, level=1, show_level_text=False, hi
             name_rect = name_prompt.get_rect(center=(surface.get_width() / 2, y_offset))
             surface.blit(name_prompt, name_rect)
             y_offset += 30
-            
+
             name_text = font.render(current_name + "_", True, WHITE)
             name_rect = name_text.get_rect(center=(surface.get_width() / 2, y_offset))
             surface.blit(name_text, name_rect)
@@ -600,22 +659,22 @@ class SoundEffects:
         self.thrust_playing = False
         self.beat_tempo = 1.0
         self.last_beat_time = 0
-        
+
     def _create_sounds(self):
         # Create synthesized sounds using pygame
         sample_rate = 44100
         max_amplitude = 32767  # Max value for 16-bit audio
-        
+
         def clamp(value):
             """Clamp value to valid 16-bit range"""
             return max(min(value, 32767), -32768)
-        
+
         def create_buffer(samples):
             """Convert numpy array to proper audio buffer"""
             buffer = array.array('h')  # signed short integer array
             buffer.extend(samples)
             return buffer
-        
+
         # Fire sound (softer, lower pitched beep)
         duration = 0.05  # shorter duration
         num_samples = int(duration * sample_rate)
@@ -627,55 +686,55 @@ class SoundEffects:
             samples[i * 2 + 1] = value  # Right channel
         self.sounds['fire'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['fire'].set_volume(0.3)
-        
+
         # Thrust sound (rocket engine)
         duration = 1.0
         num_samples = int(duration * sample_rate)
         samples = array.array('h', [0] * (num_samples * 2))
-        
+
         # Create a more complex rocket engine sound with multiple frequencies and noise
         prev_noise = 0
         for i in range(num_samples):
             t = float(i) / sample_rate
-            
+
             # Base rumble (40-60 Hz)
             base_rumble = (
                 math.sin(2.0 * math.pi * 40.0 * t) * 0.4 +
                 math.sin(2.0 * math.pi * 60.0 * t) * 0.3
             )
-            
+
             # Mid frequencies (120-180 Hz) with slight frequency modulation
             mid_freq = (
                 math.sin(2.0 * math.pi * (120.0 + math.sin(t * 2) * 10) * t) * 0.2 +
                 math.sin(2.0 * math.pi * (180.0 + math.sin(t * 3) * 15) * t) * 0.15
             )
-            
+
             # High frequency components (300-500 Hz, quieter)
             high_freq = (
                 math.sin(2.0 * math.pi * 300.0 * t) * 0.1 +
                 math.sin(2.0 * math.pi * 500.0 * t) * 0.05
             )
-            
+
             # Add some noise (filtered to be more like air/exhaust)
             noise = random.uniform(-0.3, 0.3)
             # Low-pass filter the noise (simple moving average)
             if i > 0:
                 noise = (noise + prev_noise) * 0.5
             prev_noise = noise
-            
+
             # Combine all components
             value = (base_rumble + mid_freq + high_freq + noise) * max_amplitude * 0.3
-            
+
             # Add slight stereo effect
             left_value = clamp(int(value * (1.0 + math.sin(t * 2) * 0.1)))
             right_value = clamp(int(value * (1.0 - math.sin(t * 2) * 0.1)))
-            
+
             samples[i * 2] = left_value
             samples[i * 2 + 1] = right_value
-            
+
         self.sounds['thrust'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['thrust'].set_volume(0.4)
-        
+
         # Explosion sounds
         def create_explosion(base_freq, duration, volume=0.7):
             num_samples = int(duration * sample_rate)
@@ -694,11 +753,11 @@ class SoundEffects:
             sound = pygame.mixer.Sound(buffer=samples)
             sound.set_volume(0.7)
             return sound
-            
+
         self.sounds['big_explosion'] = create_explosion(80, 0.6)
         self.sounds['medium_explosion'] = create_explosion(120, 0.5)
         self.sounds['small_explosion'] = create_explosion(160, 0.4)
-        
+
         # Ship explosion (more dramatic)
         duration = 0.8
         num_samples = int(duration * sample_rate)
@@ -716,7 +775,7 @@ class SoundEffects:
             samples[i * 2 + 1] = value
         self.sounds['ship_explosion'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['ship_explosion'].set_volume(0.8)
-        
+
         # Beat sound (low thump)
         duration = 0.1
         num_samples = int(duration * sample_rate)
@@ -729,7 +788,7 @@ class SoundEffects:
             samples[i * 2 + 1] = value
         self.sounds['beat'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['beat'].set_volume(0.4)
-        
+
         # Extra life sound (high pitched jingle)
         duration = 0.5
         num_samples = int(duration * sample_rate)
@@ -742,21 +801,21 @@ class SoundEffects:
             samples[i * 2 + 1] = value
         self.sounds['extra_life'] = pygame.mixer.Sound(buffer=samples)
         self.sounds['extra_life'].set_volume(0.5)
-    
+
     def play(self, sound_name):
         if sound_name in self.sounds:
             self.sounds[sound_name].play()
-    
+
     def start_thrust(self):
         if not self.thrust_playing:
             self.sounds['thrust'].play(-1)  # Loop indefinitely
             self.thrust_playing = True
-    
+
     def stop_thrust(self):
         if self.thrust_playing:
             self.sounds['thrust'].stop()
             self.thrust_playing = False
-    
+
     def update_beat(self, asteroid_count):
         # Increase tempo based on remaining asteroids
         current_time = pygame.time.get_ticks()
@@ -764,6 +823,12 @@ class SoundEffects:
         if current_time - self.last_beat_time > 1000 / self.beat_tempo:
             self.play('beat')
             self.last_beat_time = current_time
+
+    def stop_all_sounds(self):
+        """Stop all currently playing sounds"""
+        for sound in self.sounds.values():
+            sound.stop()
+        self.thrust_playing = False
 
 def main():
     game = Game()
