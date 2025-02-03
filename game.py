@@ -224,46 +224,35 @@ class Bullet:
 
 class Asteroid:
     def __init__(self, pos: Vector2, size: float, scale: Tuple[float, float] = (1, 1)):
-        self.pos: Vector2 = Vector2(pos)
-        self.size: float = size
-        self.original_size: float = size
-        angle = random.uniform(0, 360)
-        speed = random.uniform(1, 3)
-        self.velocity: Vector2 = Vector2(
-            math.cos(math.radians(angle)),
-            math.sin(math.radians(angle))
-        ) * speed
-        self.points: List[Vector2] = self.generate_points()
+        self.pos = Vector2(pos)
+        self.size = size
         self.scale_x, self.scale_y = scale
-        self.collision_points: Optional[List[Vector2]] = None
+        self.points = self.generate_points()
+        self.angle = random.uniform(0, 360)
+        self.spin = random.uniform(-3, 3)  # Random spin rate
+        self.velocity = Vector2(
+            random.uniform(-2, 2),
+            random.uniform(-2, 2)
+        )
+        self.collision_points = None
         self.update_collision_points()
 
     def generate_points(self) -> List[Vector2]:
-        """Generate the asteroid's shape points"""
+        """Generate a random asteroid shape with more vertices for better 3D effect"""
+        num_points = random.randint(12, 16)  # More points for smoother shape
         points = []
-        num_points = random.randint(8, 12)
         for i in range(num_points):
             angle = (i / num_points) * 2 * math.pi
-            # Vary the radius to make the asteroid more irregular
+            # Vary the radius more subtly for a more natural rock shape
             radius = self.size * random.uniform(0.8, 1.2)
-            points.append(Vector2(
-                radius * math.cos(angle),
-                radius * math.sin(angle)
-            ))
+            x = math.cos(angle) * radius
+            y = math.sin(angle) * radius
+            points.append(Vector2(x, y))
         return points
-
-    def update_collision_points(self) -> None:
-        """Update the scaled and transformed points for collision detection"""
-        transformed = []
-        for point in self.points:
-            transformed.append(Vector2(
-                point.x * self.scale_x + self.pos.x,
-                point.y * self.scale_y + self.pos.y
-            ))
-        self.collision_points = transformed
 
     def update(self, width: int, height: int) -> None:
         self.pos += self.velocity
+        self.angle += self.spin
         self.wrap(width, height)
         self.update_collision_points()
 
@@ -272,78 +261,94 @@ class Asteroid:
         self.pos.y = self.pos.y % height
 
     def draw(self, surface: Surface) -> None:
-        """Draw the asteroid"""
-        # Draw the asteroid shape
-        if self.collision_points:
-            points = [(p.x, p.y) for p in self.collision_points]
-            pygame.draw.polygon(surface, (255, 255, 255), points, 2)
+        """Draw the asteroid with 3D wireframe effect in green"""
+        # Get transformed points for the main shape
+        transformed = []
+        for point in self.points:
+            # Rotate
+            angle_rad = math.radians(self.angle)
+            rotated_x = point.x * math.cos(angle_rad) - point.y * math.sin(angle_rad)
+            rotated_y = point.x * math.sin(angle_rad) + point.y * math.cos(angle_rad)
+            
+            # Scale and translate
+            screen_x = self.pos.x + rotated_x * self.scale_x
+            screen_y = self.pos.y + rotated_y * self.scale_y
+            transformed.append((screen_x, screen_y))
+
+        # Draw 3D effect with offset lines
+        if len(transformed) >= 3:
+            # Draw back lines (darker green)
+            back_points = [(x + 4, y + 4) for x, y in transformed]
+            pygame.draw.lines(surface, (0, 100, 0), True, back_points, 2)
+            
+            # Draw connecting lines for depth
+            for i in range(len(transformed)):
+                pygame.draw.line(surface, (0, 150, 0), transformed[i], back_points[i], 1)
+            
+            # Draw front lines (bright green)
+            pygame.draw.lines(surface, (0, 255, 0), True, transformed, 2)
+
+    def update_collision_points(self) -> None:
+        """Update the scaled and transformed points for collision detection"""
+        transformed = []
+        for point in self.points:
+            # Rotate
+            angle_rad = math.radians(self.angle)
+            rotated_x = point.x * math.cos(angle_rad) - point.y * math.sin(angle_rad)
+            rotated_y = point.x * math.sin(angle_rad) + point.y * math.cos(angle_rad)
+            
+            # Scale and translate
+            screen_x = self.pos.x + rotated_x * self.scale_x
+            screen_y = self.pos.y + rotated_y * self.scale_y
+            transformed.append(Vector2(screen_x, screen_y))
+        self.collision_points = transformed
 
     def point_in_asteroid(self, point: Vector2) -> bool:
         """Check if a point is inside the asteroid using ray casting"""
-        # Get the transformed points for collision detection
-        points = self.collision_points
-        if not points:
+        if not self.collision_points:
             return False
 
         # Ray casting algorithm
         inside = False
-        j = len(points) - 1
+        j = len(self.collision_points) - 1
 
-        for i in range(len(points)):
-            if (((points[i].y > point.y) != (points[j].y > point.y)) and
-                (point.x < (points[j].x - points[i].x) * (point.y - points[i].y) /
-                          (points[j].y - points[i].y) + points[i].x)):
+        for i in range(len(self.collision_points)):
+            if (((self.collision_points[i].y > point.y) != (self.collision_points[j].y > point.y)) and
+                (point.x < (self.collision_points[j].x - self.collision_points[i].x) * 
+                          (point.y - self.collision_points[i].y) /
+                          (self.collision_points[j].y - self.collision_points[i].y) + 
+                          self.collision_points[i].x)):
                 inside = not inside
             j = i
 
         return inside
 
-    def line_segments_intersect(self, p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2) -> bool:
-        """Check if line segments (p1,p2) and (p3,p4) intersect"""
-        def ccw(A: Vector2, B: Vector2, C: Vector2) -> bool:
-            """Returns True if points are arranged counter-clockwise"""
-            return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x)
-
-        # Check if line segments intersect using CCW tests
-        return ccw(p1, p3, p4) != ccw(p2, p3, p4) and ccw(p1, p2, p3) != ccw(p1, p2, p4)
-
     def check_collision_with_ship(self, ship: Ship) -> bool:
         """Check for collision between asteroid and ship"""
-        ship_points = ship.get_transformed_points()
-        asteroid_points = self.collision_points
-
-        if not asteroid_points:
+        if not self.collision_points:
             return False
 
-        # First check if any ship point is inside the asteroid
+        ship_points = ship.get_transformed_points()
+
+        # Check if any ship point is inside the asteroid
         for point in ship_points:
             if self.point_in_asteroid(point):
                 return True
 
-        # Then check if any asteroid point is inside the ship polygon
-        for point in asteroid_points:
+        # Check if any asteroid point is inside the ship
+        for point in self.collision_points:
             inside = False
             j = len(ship_points) - 1
             for i in range(len(ship_points)):
                 if (((ship_points[i].y > point.y) != (ship_points[j].y > point.y)) and
-                    (point.x < (ship_points[j].x - ship_points[i].x) * (point.y - ship_points[i].y) /
-                              (ship_points[j].y - ship_points[i].y) + ship_points[i].x)):
+                    (point.x < (ship_points[j].x - ship_points[i].x) * 
+                              (point.y - ship_points[i].y) /
+                              (ship_points[j].y - ship_points[i].y) + 
+                              ship_points[i].x)):
                     inside = not inside
                 j = i
             if inside:
                 return True
-
-        # Finally check for line segment intersections
-        for i in range(len(ship_points)):
-            p1 = ship_points[i]
-            p2 = ship_points[(i + 1) % len(ship_points)]
-
-            for j in range(len(asteroid_points)):
-                p3 = asteroid_points[j]
-                p4 = asteroid_points[(j + 1) % len(asteroid_points)]
-
-                if self.line_segments_intersect(p1, p2, p3, p4):
-                    return True
 
         return False
 
@@ -817,7 +822,7 @@ class Game:
         self.entering_name = False
         self.current_name = ""
         self.respawn_timer = 0
-        self.new_life_timer = 0  # Timer for new life animation
+        self.new_life_timer = 0
 
         # Game objects
         self.ship = None
@@ -829,7 +834,7 @@ class Game:
         self.reset_ship()
         self.start_new_level(self.level)
         self.show_level_text = False
-        self.level_text_timer = 0  # Add timer for level text
+        self.level_text_timer = 0
 
     def reset_ship(self) -> None:
         """Create a new ship in the center of the screen"""
@@ -850,7 +855,6 @@ class Game:
             self.ship.scale_x, self.ship.scale_y = self.scale_x, self.scale_y
         for asteroid in self.asteroids:
             asteroid.scale_x, asteroid.scale_y = self.scale_x, self.scale_y
-            asteroid.update_collision_points()
         for bullet in self.bullets:
             bullet.scale_x, bullet.scale_y = self.scale_x, self.scale_y
         for particle in self.particles:
@@ -983,6 +987,13 @@ class Game:
 
             # Add points
             self.score += points
+
+            # Check for extra life bonus
+            if (self.score // EXTRA_LIFE_SCORE) > (self.last_extra_life_score // EXTRA_LIFE_SCORE):
+                self.lives += 1
+                self.last_extra_life_score = self.score
+                self.new_life_timer = 120  # 2 seconds animation
+                self.sound_effects.play('power_up')
 
             # Check if level is complete (no more asteroids)
             if len(self.asteroids) == 0:
