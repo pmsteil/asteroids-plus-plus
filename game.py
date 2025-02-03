@@ -18,9 +18,10 @@ ASPECT_RATIO = SCREEN_WIDTH / SCREEN_HEIGHT
 DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 600
 HIGH_SCORES_FILE = os.path.join(os.path.dirname(__file__), "high_scores.json")
-EXTRA_LIFE_SCORE = 10000  # Score needed for an extra life
+EXTRA_LIFE_SCORE = 25000  # Score needed for an extra life
 STARTING_ASTEROIDS = 25  # Number of asteroids at level 1
 ASTEROIDS_LEVEL_INCREASE = 25  # Percentage increase in asteroids per level
+ASTEROIDS_LEVEL_SPEED_INCREASE = 10  # Percentage increase in asteroid speed per level
 STARTING_GUNS = 4  # Number of guns to start with (1-4)
 ASTEROID_SIZES = {
     'LARGE': 40,
@@ -223,17 +224,26 @@ class Bullet:
                          (int(self.pos.x), int(self.pos.y)), size)
 
 class Asteroid:
-    def __init__(self, pos: Vector2, size: float, scale: Tuple[float, float] = (1, 1)):
+    def __init__(self, pos: Vector2, size: float, scale: Tuple[float, float] = (1, 1), level: int = 1):
         self.pos = Vector2(pos)
         self.size = size
         self.scale_x, self.scale_y = scale
         self.points = self.generate_points()
         self.angle = random.uniform(0, 360)
         self.spin = random.uniform(-3, 3)  # Random spin rate
+
+        # Calculate base velocity with level speed increase
+        base_speed = random.uniform(1, 3)
+        speed_multiplier = 1 + (ASTEROIDS_LEVEL_SPEED_INCREASE / 100) * (level - 1)
+        speed = base_speed * speed_multiplier
+
+        # Random direction
+        angle = random.uniform(0, 360)
         self.velocity = Vector2(
-            random.uniform(-2, 2),
-            random.uniform(-2, 2)
-        )
+            math.cos(math.radians(angle)),
+            math.sin(math.radians(angle))
+        ) * speed
+
         self.collision_points = None
         self.update_collision_points()
 
@@ -269,7 +279,7 @@ class Asteroid:
             angle_rad = math.radians(self.angle)
             rotated_x = point.x * math.cos(angle_rad) - point.y * math.sin(angle_rad)
             rotated_y = point.x * math.sin(angle_rad) + point.y * math.cos(angle_rad)
-            
+
             # Scale and translate
             screen_x = self.pos.x + rotated_x * self.scale_x
             screen_y = self.pos.y + rotated_y * self.scale_y
@@ -280,11 +290,11 @@ class Asteroid:
             # Draw back lines (darker green)
             back_points = [(x + 4, y + 4) for x, y in transformed]
             pygame.draw.lines(surface, (0, 100, 0), True, back_points, 2)
-            
+
             # Draw connecting lines for depth
             for i in range(len(transformed)):
                 pygame.draw.line(surface, (0, 150, 0), transformed[i], back_points[i], 1)
-            
+
             # Draw front lines (bright green)
             pygame.draw.lines(surface, (0, 255, 0), True, transformed, 2)
 
@@ -296,7 +306,7 @@ class Asteroid:
             angle_rad = math.radians(self.angle)
             rotated_x = point.x * math.cos(angle_rad) - point.y * math.sin(angle_rad)
             rotated_y = point.x * math.sin(angle_rad) + point.y * math.cos(angle_rad)
-            
+
             # Scale and translate
             screen_x = self.pos.x + rotated_x * self.scale_x
             screen_y = self.pos.y + rotated_y * self.scale_y
@@ -314,9 +324,9 @@ class Asteroid:
 
         for i in range(len(self.collision_points)):
             if (((self.collision_points[i].y > point.y) != (self.collision_points[j].y > point.y)) and
-                (point.x < (self.collision_points[j].x - self.collision_points[i].x) * 
+                (point.x < (self.collision_points[j].x - self.collision_points[i].x) *
                           (point.y - self.collision_points[i].y) /
-                          (self.collision_points[j].y - self.collision_points[i].y) + 
+                          (self.collision_points[j].y - self.collision_points[i].y) +
                           self.collision_points[i].x)):
                 inside = not inside
             j = i
@@ -341,9 +351,9 @@ class Asteroid:
             j = len(ship_points) - 1
             for i in range(len(ship_points)):
                 if (((ship_points[i].y > point.y) != (ship_points[j].y > point.y)) and
-                    (point.x < (ship_points[j].x - ship_points[i].x) * 
+                    (point.x < (ship_points[j].x - ship_points[i].x) *
                               (point.y - ship_points[i].y) /
-                              (ship_points[j].y - ship_points[i].y) + 
+                              (ship_points[j].y - ship_points[i].y) +
                               ship_points[i].x)):
                     inside = not inside
                 j = i
@@ -872,10 +882,6 @@ class Game:
         self.particles.clear()
 
         # Calculate number of asteroids with percentage increase per level
-        # For level 1: STARTING_ASTEROIDS
-        # For level 2: STARTING_ASTEROIDS * (1 + 10%) = STARTING_ASTEROIDS * 1.1
-        # For level 3: STARTING_ASTEROIDS * (1 + 20%) = STARTING_ASTEROIDS * 1.2
-        # etc.
         increase_factor = 1 + (ASTEROIDS_LEVEL_INCREASE / 100) * (level_num - 1)
         num_asteroids = round(STARTING_ASTEROIDS * increase_factor)
 
@@ -888,9 +894,9 @@ class Game:
                 x = random.random() * self.width
                 y = random.choice([0, self.height])
 
-            # Create large asteroid
+            # Create large asteroid with current level for speed scaling
             self.asteroids.append(
-                Asteroid(Vector2(x, y), ASTEROID_SIZES['LARGE'], (self.scale_x, self.scale_y))
+                Asteroid(Vector2(x, y), ASTEROID_SIZES['LARGE'], (self.scale_x, self.scale_y), level_num)
             )
 
     def handle_collisions(self) -> None:
@@ -970,7 +976,8 @@ class Game:
                 # Split into two medium asteroids
                 for _ in range(2):
                     self.asteroids.append(
-                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['MEDIUM'], (self.scale_x, self.scale_y))
+                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['MEDIUM'],
+                               (self.scale_x, self.scale_y), self.level)
                     )
                 points = 100
             elif asteroid.size >= ASTEROID_SIZES['MEDIUM']:  # Medium asteroid
@@ -978,7 +985,8 @@ class Game:
                 # Split into two small asteroids
                 for _ in range(2):
                     self.asteroids.append(
-                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['SMALL'], (self.scale_x, self.scale_y))
+                        Asteroid(Vector2(asteroid.pos), ASTEROID_SIZES['SMALL'],
+                               (self.scale_x, self.scale_y), self.level)
                     )
                 points = 150
             else:  # Small asteroid
